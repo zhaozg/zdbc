@@ -86,7 +86,13 @@ pub const Connection = struct {
         return self.query(sql, &.{});
     }
 
-    /// Get a single row from a query, or null if no rows
+    /// Get a single row from a query, or null if no rows.
+    ///
+    /// WARNING: The returned Row contains references to internal result state.
+    /// You must extract all values from the Row before using the connection
+    /// for another query. The Row becomes invalid after the result is cleaned up.
+    ///
+    /// For safer usage, consider using `query()` directly and managing the Result lifetime.
     pub fn row(self: *const Connection, sql: []const u8, params: []const Value) Error!?Row {
         var result = try self.query(sql, params);
         defer result.deinit();

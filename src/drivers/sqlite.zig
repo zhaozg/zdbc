@@ -96,20 +96,25 @@ fn sqliteResultColumnCount(ctx: *anyopaque) usize {
 }
 
 fn sqliteResultColumnName(_: *anyopaque, _: usize) ?[]const u8 {
-    // zqlite doesn't expose column names directly in a simple way
+    // Column names are not available through zqlite's Row iterator.
+    // Use column indices for value access instead.
     return null;
 }
 
+/// Returns the value at the given column index for the current row.
+/// Returns Error.NoMoreRows if there is no current row.
+/// Returns Value.initNull() if the value is NULL.
 fn sqliteResultGetValue(ctx: *anyopaque, index: usize) Error!Value {
     const result_ctx: *SqliteResultContext = @ptrCast(@alignCast(ctx));
-    if (result_ctx.current_row) |row| {
-        // Check if null
-        if (row.nullableText(index)) |text| {
-            return Value.initText(text);
-        }
-        return Value.initNull();
+    if (result_ctx.current_row == null) {
+        return Error.NoMoreRows;
     }
-    return Error.NoMoreRows;
+    const row = result_ctx.current_row.?;
+    // Check if null
+    if (row.nullableText(index)) |text| {
+        return Value.initText(text);
+    }
+    return Value.initNull();
 }
 
 fn sqliteResultGetValueByName(_: *anyopaque, _: []const u8) Error!Value {
@@ -173,6 +178,7 @@ fn sqliteQuery(ctx: *anyopaque, allocator: std.mem.Allocator, sql: []const u8, p
 
     const result_ctx = SqliteResultContext.init(allocator) catch return Error.OutOfMemory;
     result_ctx.rows = rows;
+    // Column count will be available when we have a row
 
     return Result.init(@ptrCast(result_ctx), &sqliteResultVTable);
 }
@@ -631,10 +637,11 @@ test "sqlite driver: boundary - very long string" {
 
     _ = try conn.exec("CREATE TABLE long_str_test (data TEXT)", &.{});
 
-    // Create a long string
+    // Create a long string using runtime formatting
     var long_str: [1000]u8 = undefined;
     @memset(&long_str, 'A');
-    const sql = "INSERT INTO long_str_test VALUES ('" ++ long_str ++ "')";
+    var buf: [1100]u8 = undefined;
+    const sql = std.fmt.bufPrint(&buf, "INSERT INTO long_str_test VALUES ('{s}')", .{long_str}) catch unreachable;
     _ = try conn.exec(sql, &.{});
 
     var result = try conn.query("SELECT LENGTH(data) FROM long_str_test", &.{});

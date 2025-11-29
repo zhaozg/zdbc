@@ -143,18 +143,16 @@ pub const Pool = struct {
         while (self.available.items.len == 0) {
             // Try to create a new connection if below max size
             if (self.connections.items.len < self.config.max_size) {
-                self.mutex.unlock();
+                // Create connection while holding the lock to avoid race conditions
                 self.createConnection() catch {};
-                self.mutex.lock();
                 continue;
             }
 
             // Wait for a connection to become available
             const timeout_ns = self.config.acquire_timeout_ms * 1_000_000;
-            const result = self.condition.timedWait(&self.mutex, timeout_ns);
-            if (result == .timed_out) {
+            self.condition.timedWait(&self.mutex, timeout_ns) catch {
                 return Error.Timeout;
-            }
+            };
 
             if (self.closed) {
                 return Error.PoolExhausted;
@@ -199,7 +197,9 @@ pub const Pool = struct {
         // Find the index of this connection
         for (self.connections.items, 0..) |*conn, i| {
             if (conn == pooled_conn) {
-                self.available.append(i) catch {};
+                self.available.append(i) catch |err| {
+                    std.log.err("Failed to return connection to pool: {}", .{err});
+                };
                 break;
             }
         }

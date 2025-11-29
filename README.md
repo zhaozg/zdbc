@@ -10,7 +10,8 @@ A high-performance, type-safe database abstraction layer for Zig using the VTabl
 - **Connection Pooling**: Built-in thread-safe connection pool
 - **URI-based Connections**: Easy connection string parsing
 - **Type Safety**: Compile-time type checking for database operations
-- **SQL Injection Prevention**: Parameterized queries only
+
+> **Note**: Parameter binding support is currently limited. The `params` argument is reserved for future implementation of parameterized queries. For now, use proper escaping or prepared statements at the application level to prevent SQL injection.
 
 ## Supported Databases
 
