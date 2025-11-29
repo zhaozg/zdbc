@@ -385,15 +385,17 @@ test "postgresql: transaction commit" {
     try conn.commit();
 
     // Verify data persists (cast to text since pg.zig returns binary format)
-    var result = try conn.query("SELECT COUNT(*)::text FROM pg_test_txn", &.{});
-    defer result.deinit();
-    const has_row = try result.next();
-    try std.testing.expect(has_row != null);
-    // Verify count is 1 (committed row)
-    const row = has_row.?;
-    const count_text = try row.getText(0);
-    try std.testing.expect(count_text != null);
-    try std.testing.expectEqualStrings("1", count_text.?);
+    {
+        var result = try conn.query("SELECT COUNT(*)::text FROM pg_test_txn", &.{});
+        defer result.deinit();
+        const has_row = try result.next();
+        try std.testing.expect(has_row != null);
+        // Verify count is 1 (committed row)
+        const row = has_row.?;
+        const count_text = try row.getText(0);
+        try std.testing.expect(count_text != null);
+        try std.testing.expectEqualStrings("1", count_text.?);
+    }
 
     // Cleanup
     _ = try conn.exec("DROP TABLE pg_test_txn", &.{});
@@ -426,15 +428,17 @@ test "postgresql: transaction rollback" {
     try conn.rollback();
 
     // Verify only pre-transaction data remains (cast to text since pg.zig returns binary format)
-    var result = try conn.query("SELECT COUNT(*)::text FROM pg_test_rollback", &.{});
-    defer result.deinit();
-    const has_row = try result.next();
-    try std.testing.expect(has_row != null);
-    // Verify count is 1 (only 'before' row, rollback reverted 'during' row)
-    const row = has_row.?;
-    const count_text = try row.getText(0);
-    try std.testing.expect(count_text != null);
-    try std.testing.expectEqualStrings("1", count_text.?);
+    {
+        var result = try conn.query("SELECT COUNT(*)::text FROM pg_test_rollback", &.{});
+        defer result.deinit();
+        const has_row = try result.next();
+        try std.testing.expect(has_row != null);
+        // Verify count is 1 (only 'before' row, rollback reverted 'during' row)
+        const row = has_row.?;
+        const count_text = try row.getText(0);
+        try std.testing.expect(count_text != null);
+        try std.testing.expectEqualStrings("1", count_text.?);
+    }
 
     // Cleanup
     _ = try conn.exec("DROP TABLE pg_test_rollback", &.{});
@@ -467,16 +471,18 @@ test "postgresql: multiple data types" {
 
     _ = try conn.exec("INSERT INTO pg_test_types VALUES (42, 9223372036854775807, 3.14, 2.71828, 'hello', true, '2024-01-01 12:00:00')", &.{});
 
-    var result = try conn.query("SELECT text_col FROM pg_test_types", &.{});
-    defer result.deinit();
+    {
+        var result = try conn.query("SELECT text_col FROM pg_test_types", &.{});
+        defer result.deinit();
 
-    const has_row = try result.next();
-    try std.testing.expect(has_row != null);
-    // Verify the text column value matches what was inserted
-    const row = has_row.?;
-    const text_val = try row.getText(0);
-    try std.testing.expect(text_val != null);
-    try std.testing.expectEqualStrings("hello", text_val.?);
+        const has_row = try result.next();
+        try std.testing.expect(has_row != null);
+        // Verify the text column value matches what was inserted
+        const row = has_row.?;
+        const text_val = try row.getText(0);
+        try std.testing.expect(text_val != null);
+        try std.testing.expectEqualStrings("hello", text_val.?);
+    }
 
     // Cleanup
     _ = try conn.exec("DROP TABLE pg_test_types", &.{});
@@ -499,16 +505,18 @@ test "postgresql: unicode data" {
     _ = try conn.exec("INSERT INTO pg_test_unicode VALUES ('🎉🎊🎈')", &.{});
     _ = try conn.exec("INSERT INTO pg_test_unicode VALUES ('Привет мир')", &.{});
 
-    var result = try conn.query("SELECT data FROM pg_test_unicode WHERE data = '你好世界'", &.{});
-    defer result.deinit();
+    {
+        var result = try conn.query("SELECT data FROM pg_test_unicode WHERE data = '你好世界'", &.{});
+        defer result.deinit();
 
-    const has_row = try result.next();
-    try std.testing.expect(has_row != null);
-    // Verify the unicode data matches what was inserted
-    const row = has_row.?;
-    const unicode_val = try row.getText(0);
-    try std.testing.expect(unicode_val != null);
-    try std.testing.expectEqualStrings("你好世界", unicode_val.?);
+        const has_row = try result.next();
+        try std.testing.expect(has_row != null);
+        // Verify the unicode data matches what was inserted
+        const row = has_row.?;
+        const unicode_val = try row.getText(0);
+        try std.testing.expect(unicode_val != null);
+        try std.testing.expectEqualStrings("你好世界", unicode_val.?);
+    }
 
     // Cleanup
     _ = try conn.exec("DROP TABLE pg_test_unicode", &.{});
@@ -529,15 +537,17 @@ test "postgresql: null values" {
     _ = try conn.exec("CREATE TABLE pg_test_null (id INTEGER, nullable_col TEXT)", &.{});
     _ = try conn.exec("INSERT INTO pg_test_null VALUES (1, NULL)", &.{});
 
-    var result = try conn.query("SELECT nullable_col FROM pg_test_null", &.{});
-    defer result.deinit();
+    {
+        var result = try conn.query("SELECT nullable_col FROM pg_test_null", &.{});
+        defer result.deinit();
 
-    const has_row = try result.next();
-    try std.testing.expect(has_row != null);
-    // Verify the NULL value is properly returned
-    const row = has_row.?;
-    const is_null = try row.isNull(0);
-    try std.testing.expect(is_null);
+        const has_row = try result.next();
+        try std.testing.expect(has_row != null);
+        // Verify the NULL value is properly returned
+        const row = has_row.?;
+        const is_null = try row.isNull(0);
+        try std.testing.expect(is_null);
+    }
 
     // Cleanup
     _ = try conn.exec("DROP TABLE pg_test_null", &.{});
@@ -561,19 +571,21 @@ test "postgresql: aggregate functions" {
     _ = try conn.exec("INSERT INTO pg_test_agg VALUES (30)", &.{});
 
     // Cast aggregate results to text since pg.zig returns binary format
-    var result = try conn.query("SELECT SUM(value)::text, AVG(value)::text, MIN(value)::text, MAX(value)::text, COUNT(*)::text FROM pg_test_agg", &.{});
-    defer result.deinit();
+    {
+        var result = try conn.query("SELECT SUM(value)::text, AVG(value)::text, MIN(value)::text, MAX(value)::text, COUNT(*)::text FROM pg_test_agg", &.{});
+        defer result.deinit();
 
-    const has_row = try result.next();
-    try std.testing.expect(has_row != null);
-    // Verify aggregate function results: SUM=60, AVG=20, MIN=10, MAX=30, COUNT=3
-    const row = has_row.?;
-    const sum_val = try row.getText(0);
-    try std.testing.expect(sum_val != null);
-    try std.testing.expectEqualStrings("60", sum_val.?);
-    const count_val = try row.getText(4);
-    try std.testing.expect(count_val != null);
-    try std.testing.expectEqualStrings("3", count_val.?);
+        const has_row = try result.next();
+        try std.testing.expect(has_row != null);
+        // Verify aggregate function results: SUM=60, AVG=20, MIN=10, MAX=30, COUNT=3
+        const row = has_row.?;
+        const sum_val = try row.getText(0);
+        try std.testing.expect(sum_val != null);
+        try std.testing.expectEqualStrings("60", sum_val.?);
+        const count_val = try row.getText(4);
+        try std.testing.expect(count_val != null);
+        try std.testing.expectEqualStrings("3", count_val.?);
+    }
 
     // Cleanup
     _ = try conn.exec("DROP TABLE pg_test_agg", &.{});
@@ -598,19 +610,21 @@ test "postgresql: join tables" {
     _ = try conn.exec("INSERT INTO pg_test_orders VALUES (100, 1)", &.{});
 
     // Cast integer to text since pg.zig returns binary format
-    var result = try conn.query("SELECT o.id::text, c.name FROM pg_test_orders o JOIN pg_test_customers c ON o.customer_id = c.id", &.{});
-    defer result.deinit();
+    {
+        var result = try conn.query("SELECT o.id::text, c.name FROM pg_test_orders o JOIN pg_test_customers c ON o.customer_id = c.id", &.{});
+        defer result.deinit();
 
-    const has_row = try result.next();
-    try std.testing.expect(has_row != null);
-    // Verify join results: order id 100, customer name 'Alice'
-    const row = has_row.?;
-    const order_id = try row.getText(0);
-    try std.testing.expect(order_id != null);
-    try std.testing.expectEqualStrings("100", order_id.?);
-    const customer_name = try row.getText(1);
-    try std.testing.expect(customer_name != null);
-    try std.testing.expectEqualStrings("Alice", customer_name.?);
+        const has_row = try result.next();
+        try std.testing.expect(has_row != null);
+        // Verify join results: order id 100, customer name 'Alice'
+        const row = has_row.?;
+        const order_id = try row.getText(0);
+        try std.testing.expect(order_id != null);
+        try std.testing.expectEqualStrings("100", order_id.?);
+        const customer_name = try row.getText(1);
+        try std.testing.expect(customer_name != null);
+        try std.testing.expectEqualStrings("Alice", customer_name.?);
+    }
 
     // Cleanup
     _ = try conn.exec("DROP TABLE pg_test_orders", &.{});
