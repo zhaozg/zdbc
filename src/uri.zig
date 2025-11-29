@@ -16,7 +16,7 @@ pub const Uri = struct {
     /// Parse a URI string into a Uri struct
     /// Supported formats:
     /// - sqlite:///path/to/database.db
-    /// - sqlite::memory:
+    /// - sqlite://:memory:
     /// - postgresql://user:password@host:port/database
     /// - postgres://user:password@host:port/database
     /// - mysql://user:password@host:port/database
