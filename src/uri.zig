@@ -32,7 +32,7 @@ pub const Uri = struct {
 
         return switch (backend) {
             .sqlite => parseSqliteUri(rest),
-            .postgresql, .mysql => parseNetworkUri(backend, rest),
+            .postgresql, .mysql, .mock => parseNetworkUri(backend, rest),
         };
     }
 
@@ -43,6 +43,8 @@ pub const Uri = struct {
             return .postgresql;
         } else if (std.mem.eql(u8, scheme, "mysql") or std.mem.eql(u8, scheme, "mariadb")) {
             return .mysql;
+        } else if (std.mem.eql(u8, scheme, "mock")) {
+            return .mock;
         }
         return null;
     }
@@ -118,7 +120,7 @@ pub const Uri = struct {
             uri.port = switch (backend) {
                 .postgresql => 5432,
                 .mysql => 3306,
-                .sqlite => null,
+                .sqlite, .mock => null,
             };
         }
 
@@ -130,7 +132,7 @@ pub const Uri = struct {
     /// Get the default port for the backend
     pub fn defaultPort(backend: Backend) ?u16 {
         return switch (backend) {
-            .sqlite => null,
+            .sqlite, .mock => null,
             .postgresql => 5432,
             .mysql => 3306,
         };

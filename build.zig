@@ -11,45 +11,37 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    // Link system libraries for SQLite
-    zdbc_mod.link_system_library("sqlite3", .{ .needed = true });
-    zdbc_mod.link_libc();
-
-    // Library artifact
-    const lib = b.addStaticLibrary(.{
-        .name = "zdbc",
+    // Unit tests module
+    const test_mod = b.createModule(.{
         .root_source_file = b.path("src/zdbc.zig"),
         .target = target,
         .optimize = optimize,
     });
-    lib.linkSystemLibrary("sqlite3");
-    lib.linkLibC();
-    b.installArtifact(lib);
 
     // Unit tests
     const main_tests = b.addTest(.{
-        .root_source_file = b.path("src/zdbc.zig"),
-        .target = target,
-        .optimize = optimize,
+        .name = "zdbc-test",
+        .root_module = test_mod,
     });
-    main_tests.linkSystemLibrary("sqlite3");
-    main_tests.linkLibC();
 
     const run_main_tests = b.addRunArtifact(main_tests);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_main_tests.step);
 
-    // Example executable
-    const example = b.addExecutable(.{
-        .name = "zdbc-example",
+    // Example module
+    const example_mod = b.createModule(.{
         .root_source_file = b.path("src/example.zig"),
         .target = target,
         .optimize = optimize,
     });
-    example.root_module.addImport("zdbc", zdbc_mod);
-    example.linkSystemLibrary("sqlite3");
-    example.linkLibC();
+    example_mod.addImport("zdbc", zdbc_mod);
+
+    // Example executable
+    const example = b.addExecutable(.{
+        .name = "zdbc-example",
+        .root_module = example_mod,
+    });
     b.installArtifact(example);
 
     const run_example = b.addRunArtifact(example);
@@ -58,3 +50,4 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the example");
     run_step.dependOn(&run_example.step);
 }
+
