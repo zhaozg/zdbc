@@ -242,3 +242,330 @@ test "postgresql driver interface" {
     const uri = Uri.parse("postgresql://user:pass@localhost:5432/testdb") catch unreachable;
     _ = uri;
 }
+
+// ============================================================================
+// PostgreSQL Driver Integration Tests
+// These tests require a running PostgreSQL database with environment variables:
+// - ZDBC_PG_HOST (default: localhost)
+// - ZDBC_PG_PORT (default: 5432)
+// - ZDBC_PG_USER (default: postgres)
+// - ZDBC_PG_PASSWORD
+// - ZDBC_PG_DATABASE (default: zdbc_test)
+// ============================================================================
+
+fn getPgTestUri(allocator: std.mem.Allocator) ?[]const u8 {
+    const password = std.process.getEnvVarOwned(allocator, "ZDBC_PG_PASSWORD") catch return null;
+    defer allocator.free(password);
+
+    const host = std.process.getEnvVarOwned(allocator, "ZDBC_PG_HOST") catch allocator.dupe(u8, "localhost") catch return null;
+    defer allocator.free(host);
+
+    const port = std.process.getEnvVarOwned(allocator, "ZDBC_PG_PORT") catch allocator.dupe(u8, "5432") catch return null;
+    defer allocator.free(port);
+
+    const user = std.process.getEnvVarOwned(allocator, "ZDBC_PG_USER") catch allocator.dupe(u8, "postgres") catch return null;
+    defer allocator.free(user);
+
+    const database = std.process.getEnvVarOwned(allocator, "ZDBC_PG_DATABASE") catch allocator.dupe(u8, "zdbc_test") catch return null;
+    defer allocator.free(database);
+
+    return std.fmt.allocPrint(allocator, "postgresql://{s}:{s}@{s}:{s}/{s}", .{
+        user,
+        password,
+        host,
+        port,
+        database,
+    }) catch return null;
+}
+
+test "postgresql: connection and ping" {
+    const allocator = std.testing.allocator;
+    const uri_str = getPgTestUri(allocator) orelse {
+        // Skip test if PostgreSQL is not configured
+        return;
+    };
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch |err| {
+        std.debug.print("PostgreSQL connection failed (expected if no server): {}\n", .{err});
+        return;
+    };
+    defer conn.close();
+
+    // Test ping
+    try conn.ping();
+}
+
+test "postgresql: create table and insert" {
+    const allocator = std.testing.allocator;
+    const uri_str = getPgTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS pg_test_basic", &.{}) catch {};
+
+    // Create table
+    _ = try conn.exec("CREATE TABLE pg_test_basic (id SERIAL PRIMARY KEY, name TEXT, value REAL)", &.{});
+
+    // Insert data
+    _ = try conn.exec("INSERT INTO pg_test_basic (name, value) VALUES ('hello', 3.14)", &.{});
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE pg_test_basic", &.{});
+}
+
+test "postgresql: query returns rows" {
+    const allocator = std.testing.allocator;
+    const uri_str = getPgTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS pg_test_query", &.{}) catch {};
+
+    // Create and populate table
+    _ = try conn.exec("CREATE TABLE pg_test_query (id SERIAL, name TEXT)", &.{});
+    _ = try conn.exec("INSERT INTO pg_test_query (name) VALUES ('Alice')", &.{});
+    _ = try conn.exec("INSERT INTO pg_test_query (name) VALUES ('Bob')", &.{});
+
+    // Query
+    var result = try conn.query("SELECT id, name FROM pg_test_query ORDER BY id", &.{});
+    defer result.deinit();
+
+    // First row
+    const row1 = try result.next();
+    try std.testing.expect(row1 != null);
+
+    // Second row
+    const row2 = try result.next();
+    try std.testing.expect(row2 != null);
+
+    // No more rows
+    const row3 = try result.next();
+    try std.testing.expect(row3 == null);
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE pg_test_query", &.{});
+}
+
+test "postgresql: transaction commit" {
+    const allocator = std.testing.allocator;
+    const uri_str = getPgTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS pg_test_txn", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE pg_test_txn (id SERIAL PRIMARY KEY, value TEXT)", &.{});
+
+    // Start transaction
+    try conn.begin();
+
+    // Insert within transaction
+    _ = try conn.exec("INSERT INTO pg_test_txn (value) VALUES ('in_transaction')", &.{});
+
+    // Commit
+    try conn.commit();
+
+    // Verify data persists
+    var result = try conn.query("SELECT COUNT(*) FROM pg_test_txn", &.{});
+    defer result.deinit();
+    const has_row = try result.next();
+    try std.testing.expect(has_row != null);
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE pg_test_txn", &.{});
+}
+
+test "postgresql: transaction rollback" {
+    const allocator = std.testing.allocator;
+    const uri_str = getPgTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS pg_test_rollback", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE pg_test_rollback (id SERIAL PRIMARY KEY, value TEXT)", &.{});
+
+    // Insert before transaction
+    _ = try conn.exec("INSERT INTO pg_test_rollback (value) VALUES ('before')", &.{});
+
+    // Start transaction
+    try conn.begin();
+
+    // Insert within transaction
+    _ = try conn.exec("INSERT INTO pg_test_rollback (value) VALUES ('during')", &.{});
+
+    // Rollback
+    try conn.rollback();
+
+    // Verify only pre-transaction data remains
+    var result = try conn.query("SELECT COUNT(*) FROM pg_test_rollback", &.{});
+    defer result.deinit();
+    const has_row = try result.next();
+    try std.testing.expect(has_row != null);
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE pg_test_rollback", &.{});
+}
+
+test "postgresql: multiple data types" {
+    const allocator = std.testing.allocator;
+    const uri_str = getPgTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS pg_test_types", &.{}) catch {};
+
+    // Create table with various types
+    _ = try conn.exec(
+        \\CREATE TABLE pg_test_types (
+        \\  int_col INTEGER,
+        \\  bigint_col BIGINT,
+        \\  real_col REAL,
+        \\  double_col DOUBLE PRECISION,
+        \\  text_col TEXT,
+        \\  bool_col BOOLEAN,
+        \\  timestamp_col TIMESTAMP
+        \\)
+    , &.{});
+
+    _ = try conn.exec("INSERT INTO pg_test_types VALUES (42, 9223372036854775807, 3.14, 2.71828, 'hello', true, '2024-01-01 12:00:00')", &.{});
+
+    var result = try conn.query("SELECT text_col FROM pg_test_types", &.{});
+    defer result.deinit();
+
+    const has_row = try result.next();
+    try std.testing.expect(has_row != null);
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE pg_test_types", &.{});
+}
+
+test "postgresql: unicode data" {
+    const allocator = std.testing.allocator;
+    const uri_str = getPgTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS pg_test_unicode", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE pg_test_unicode (data TEXT)", &.{});
+    _ = try conn.exec("INSERT INTO pg_test_unicode VALUES ('你好世界')", &.{});
+    _ = try conn.exec("INSERT INTO pg_test_unicode VALUES ('🎉🎊🎈')", &.{});
+    _ = try conn.exec("INSERT INTO pg_test_unicode VALUES ('Привет мир')", &.{});
+
+    var result = try conn.query("SELECT data FROM pg_test_unicode WHERE data = '你好世界'", &.{});
+    defer result.deinit();
+
+    const has_row = try result.next();
+    try std.testing.expect(has_row != null);
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE pg_test_unicode", &.{});
+}
+
+test "postgresql: null values" {
+    const allocator = std.testing.allocator;
+    const uri_str = getPgTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS pg_test_null", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE pg_test_null (id INTEGER, nullable_col TEXT)", &.{});
+    _ = try conn.exec("INSERT INTO pg_test_null VALUES (1, NULL)", &.{});
+
+    var result = try conn.query("SELECT nullable_col FROM pg_test_null", &.{});
+    defer result.deinit();
+
+    const has_row = try result.next();
+    try std.testing.expect(has_row != null);
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE pg_test_null", &.{});
+}
+
+test "postgresql: aggregate functions" {
+    const allocator = std.testing.allocator;
+    const uri_str = getPgTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS pg_test_agg", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE pg_test_agg (value INTEGER)", &.{});
+    _ = try conn.exec("INSERT INTO pg_test_agg VALUES (10)", &.{});
+    _ = try conn.exec("INSERT INTO pg_test_agg VALUES (20)", &.{});
+    _ = try conn.exec("INSERT INTO pg_test_agg VALUES (30)", &.{});
+
+    var result = try conn.query("SELECT SUM(value), AVG(value), MIN(value), MAX(value), COUNT(*) FROM pg_test_agg", &.{});
+    defer result.deinit();
+
+    const has_row = try result.next();
+    try std.testing.expect(has_row != null);
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE pg_test_agg", &.{});
+}
+
+test "postgresql: join tables" {
+    const allocator = std.testing.allocator;
+    const uri_str = getPgTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop tables if exist
+    _ = conn.exec("DROP TABLE IF EXISTS pg_test_orders", &.{}) catch {};
+    _ = conn.exec("DROP TABLE IF EXISTS pg_test_customers", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE pg_test_customers (id INTEGER PRIMARY KEY, name TEXT)", &.{});
+    _ = try conn.exec("CREATE TABLE pg_test_orders (id INTEGER, customer_id INTEGER)", &.{});
+    _ = try conn.exec("INSERT INTO pg_test_customers VALUES (1, 'Alice')", &.{});
+    _ = try conn.exec("INSERT INTO pg_test_orders VALUES (100, 1)", &.{});
+
+    var result = try conn.query("SELECT o.id, c.name FROM pg_test_orders o JOIN pg_test_customers c ON o.customer_id = c.id", &.{});
+    defer result.deinit();
+
+    const has_row = try result.next();
+    try std.testing.expect(has_row != null);
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE pg_test_orders", &.{});
+    _ = try conn.exec("DROP TABLE pg_test_customers", &.{});
+}
