@@ -71,6 +71,8 @@ pub const PgResultContext = struct {
 
     pub fn deinit(self: *PgResultContext) void {
         if (self.result) |result| {
+            // Drain any remaining rows to leave the connection in a clean state
+            result.drain() catch {};
             result.deinit();
         }
         self.allocator.destroy(self);
