@@ -71,7 +71,10 @@ pub const PgResultContext = struct {
 
     pub fn deinit(self: *PgResultContext) void {
         if (self.result) |result| {
-            // Drain any remaining rows to leave the connection in a clean state
+            // Drain any remaining rows to leave the connection in a clean state.
+            // Errors are ignored here because we're in cleanup and can't propagate them,
+            // and failing to drain won't cause memory leaks - just connection state issues
+            // that will be resolved when the connection is closed.
             result.drain() catch {};
             result.deinit();
         }
