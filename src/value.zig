@@ -127,17 +127,6 @@ pub const Value = union(enum) {
     }
 };
 
-/// Create values from Zig tuple of values
-pub fn fromTuple(comptime T: type, tuple: T) []const Value {
-    const fields = @typeInfo(T).@"struct".fields;
-    var result: [fields.len]Value = undefined;
-    inline for (fields, 0..) |field, i| {
-        const val = @field(tuple, field.name);
-        result[i] = fromAny(val);
-    }
-    return &result;
-}
-
 /// Convert any Zig value to a database Value
 pub fn fromAny(val: anytype) Value {
     const T = @TypeOf(val);
