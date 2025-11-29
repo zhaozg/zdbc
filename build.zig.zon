@@ -3,7 +3,20 @@
     .version = "0.1.0",
     .fingerprint = 0xe968c5df8eeeb19c,
     .minimum_zig_version = "0.15.0",
-    .dependencies = .{},
+    .dependencies = .{
+        .zqlite = .{
+            .url = "git+https://github.com/karlseguin/zqlite.zig#master",
+            .hash = "zqlite-0.0.0-RWLaY-C4mADQvgmoLhHD-cHtCgKYdQNAoqASip2uJzBL",
+        },
+        .pg = .{
+            .url = "git+https://github.com/karlseguin/pg.zig#master",
+            .hash = "pg-0.0.0-Wp_7gag6BgD_QAZrPhNNEGpnUZR_LEkKT40Ura3p-4yX",
+        },
+        .myzql = .{
+            .url = "git+https://github.com/speed2exe/myzql#main",
+            .hash = "myzql-0.0.0-XU5aADP4AgD6TcFfz8DHEPl0FTn_R8qAgTsimePitObZ",
+        },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",
