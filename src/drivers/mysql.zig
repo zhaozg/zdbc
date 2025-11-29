@@ -163,8 +163,8 @@ fn mysqlExec(ctx: *anyopaque, allocator: std.mem.Allocator, sql: []const u8, par
     const result = mysql_ctx.conn.query(sql) catch return Error.ExecutionFailed;
     switch (result) {
         .ok => |ok| {
-            mysql_ctx.affected_rows = @intCast(ok.affected_rows);
-            mysql_ctx.last_insert_id = @intCast(ok.last_insert_id);
+            mysql_ctx.affected_rows = std.math.cast(usize, ok.affected_rows) orelse std.math.maxInt(usize);
+            mysql_ctx.last_insert_id = std.math.cast(i64, ok.last_insert_id) orelse std.math.maxInt(i64);
             return mysql_ctx.affected_rows;
         },
         .err => return Error.ExecutionFailed,

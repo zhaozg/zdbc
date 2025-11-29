@@ -65,11 +65,11 @@ pub const MockTable = struct {
     }
 
     pub fn deinit(self: *MockTable) void {
-        self.columns.deinit(self.allocator);
         for (self.rows.items) |*row| {
             row.deinit(self.allocator);
         }
         self.rows.deinit(self.allocator);
+        self.columns.deinit(self.allocator);
     }
 };
 

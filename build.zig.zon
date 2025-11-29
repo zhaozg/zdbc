@@ -1,7 +1,7 @@
 .{
     .name = .zdbc,
     .version = "0.1.0",
-    .fingerprint = 0xe968c5df8eeeb19c,
+    .fingerprint = 0xe968c5dfbe31e2fe,
     .minimum_zig_version = "0.15.0",
     .dependencies = .{
         .zqlite = .{
