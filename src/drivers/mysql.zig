@@ -84,13 +84,11 @@ pub const MysqlContext = struct {
 pub const MysqlResultContext = struct {
     allocator: std.mem.Allocator,
     affected: usize = 0,
-    conn: *myzql.conn.Conn,
 
-    pub fn init(allocator: std.mem.Allocator, conn: *myzql.conn.Conn) !*MysqlResultContext {
+    pub fn init(allocator: std.mem.Allocator) !*MysqlResultContext {
         const ctx = try allocator.create(MysqlResultContext);
         ctx.* = MysqlResultContext{
             .allocator = allocator,
-            .conn = conn,
         };
         return ctx;
     }
@@ -180,8 +178,9 @@ fn mysqlQuery(ctx: *anyopaque, allocator: std.mem.Allocator, sql: []const u8, pa
     // Use queryRows for SELECT statements that return result sets
     const rows = mysql_ctx.conn.queryRows(allocator, sql) catch return Error.ExecutionFailed;
 
-    // For now, we consume all rows immediately to avoid connection state issues
-    // This is a temporary solution - proper result iteration should be implemented
+    // Consume all rows to leave the connection in a clean state
+    // Note: This is a temporary solution - proper result iteration should be implemented
+    // to allow callers to access the actual query data
     switch (rows) {
         .err => return Error.ExecutionFailed,
         .rows => |rs| {
@@ -190,7 +189,7 @@ fn mysqlQuery(ctx: *anyopaque, allocator: std.mem.Allocator, sql: []const u8, pa
         },
     }
 
-    const result_ctx = MysqlResultContext.init(allocator, &mysql_ctx.conn) catch return Error.OutOfMemory;
+    const result_ctx = MysqlResultContext.init(allocator) catch return Error.OutOfMemory;
     return Result.init(@ptrCast(result_ctx), &mysqlResultVTable);
 }
 
