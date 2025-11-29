@@ -379,8 +379,8 @@ test "postgresql: transaction commit" {
     // Commit
     try conn.commit();
 
-    // Verify data persists
-    var result = try conn.query("SELECT COUNT(*) FROM pg_test_txn", &.{});
+    // Verify data persists (cast to text since pg.zig returns binary format)
+    var result = try conn.query("SELECT COUNT(*)::text FROM pg_test_txn", &.{});
     defer result.deinit();
     const has_row = try result.next();
     try std.testing.expect(has_row != null);
@@ -420,8 +420,8 @@ test "postgresql: transaction rollback" {
     // Rollback
     try conn.rollback();
 
-    // Verify only pre-transaction data remains
-    var result = try conn.query("SELECT COUNT(*) FROM pg_test_rollback", &.{});
+    // Verify only pre-transaction data remains (cast to text since pg.zig returns binary format)
+    var result = try conn.query("SELECT COUNT(*)::text FROM pg_test_rollback", &.{});
     defer result.deinit();
     const has_row = try result.next();
     try std.testing.expect(has_row != null);
@@ -555,7 +555,8 @@ test "postgresql: aggregate functions" {
     _ = try conn.exec("INSERT INTO pg_test_agg VALUES (20)", &.{});
     _ = try conn.exec("INSERT INTO pg_test_agg VALUES (30)", &.{});
 
-    var result = try conn.query("SELECT SUM(value), AVG(value), MIN(value), MAX(value), COUNT(*) FROM pg_test_agg", &.{});
+    // Cast aggregate results to text since pg.zig returns binary format
+    var result = try conn.query("SELECT SUM(value)::text, AVG(value)::text, MIN(value)::text, MAX(value)::text, COUNT(*)::text FROM pg_test_agg", &.{});
     defer result.deinit();
 
     const has_row = try result.next();
@@ -591,7 +592,8 @@ test "postgresql: join tables" {
     _ = try conn.exec("INSERT INTO pg_test_customers VALUES (1, 'Alice')", &.{});
     _ = try conn.exec("INSERT INTO pg_test_orders VALUES (100, 1)", &.{});
 
-    var result = try conn.query("SELECT o.id, c.name FROM pg_test_orders o JOIN pg_test_customers c ON o.customer_id = c.id", &.{});
+    // Cast integer to text since pg.zig returns binary format
+    var result = try conn.query("SELECT o.id::text, c.name FROM pg_test_orders o JOIN pg_test_customers c ON o.customer_id = c.id", &.{});
     defer result.deinit();
 
     const has_row = try result.next();
