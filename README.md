@@ -16,9 +16,9 @@ A high-performance, type-safe database abstraction layer for Zig using the VTabl
 
 | Database   | Library                                                    | Status       |
 |------------|-----------------------------------------------------------|--------------|
-| SQLite     | [zqlite.zig](https://github.com/karlseguin/zqlite.zig)   | Planned      |
-| PostgreSQL | [pg.zig](https://github.com/karlseguin/pg.zig)           | Planned      |
-| MySQL      | [myzql](https://github.com/speed2exe/myzql)              | Planned      |
+| SQLite     | [zqlite.zig](https://github.com/karlseguin/zqlite.zig)   | ✅ Available |
+| PostgreSQL | [pg.zig](https://github.com/karlseguin/pg.zig)           | ✅ Available |
+| MySQL      | [myzql](https://github.com/speed2exe/myzql)              | ✅ Available |
 | Mock       | Built-in                                                  | ✅ Available |
 
 ## Installation
