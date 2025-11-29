@@ -104,20 +104,14 @@ pub const Result = struct {
     /// VTable containing function pointers
     vtable: *const ResultVTable,
 
-    /// Current row for iteration
-    current_row: Row,
-
     /// Track if we've started iterating
     started: bool = false,
 
     pub fn init(ctx: *anyopaque, vtable: *const ResultVTable) Result {
-        var result = Result{
+        return Result{
             .ctx = ctx,
             .vtable = vtable,
-            .current_row = undefined,
         };
-        result.current_row = Row{ .result = &result };
-        return result;
     }
 
     /// Get the next row, or null if no more rows
@@ -125,7 +119,7 @@ pub const Result = struct {
         const has_next = try self.vtable.next(self.ctx);
         if (has_next) {
             self.started = true;
-            return self.current_row;
+            return Row{ .result = self };
         }
         return null;
     }
