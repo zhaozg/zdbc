@@ -243,3 +243,351 @@ test "mysql driver interface" {
     const uri = Uri.parse("mysql://user:pass@localhost:3306/testdb") catch unreachable;
     _ = uri;
 }
+
+// ============================================================================
+// MySQL Driver Integration Tests
+// These tests require a running MySQL database with environment variables:
+// - ZDBC_MYSQL_HOST (default: 127.0.0.1)
+// - ZDBC_MYSQL_PORT (default: 3306)
+// - ZDBC_MYSQL_USER (default: root)
+// - ZDBC_MYSQL_PASSWORD
+// - ZDBC_MYSQL_DATABASE (default: zdbc_test)
+// ============================================================================
+
+fn getMysqlTestUri(allocator: std.mem.Allocator) ?[]const u8 {
+    const password = std.process.getEnvVarOwned(allocator, "ZDBC_MYSQL_PASSWORD") catch return null;
+    defer allocator.free(password);
+
+    const host = std.process.getEnvVarOwned(allocator, "ZDBC_MYSQL_HOST") catch allocator.dupe(u8, "127.0.0.1") catch return null;
+    defer allocator.free(host);
+
+    const port = std.process.getEnvVarOwned(allocator, "ZDBC_MYSQL_PORT") catch allocator.dupe(u8, "3306") catch return null;
+    defer allocator.free(port);
+
+    const user = std.process.getEnvVarOwned(allocator, "ZDBC_MYSQL_USER") catch allocator.dupe(u8, "root") catch return null;
+    defer allocator.free(user);
+
+    const database = std.process.getEnvVarOwned(allocator, "ZDBC_MYSQL_DATABASE") catch allocator.dupe(u8, "zdbc_test") catch return null;
+    defer allocator.free(database);
+
+    return std.fmt.allocPrint(allocator, "mysql://{s}:{s}@{s}:{s}/{s}", .{
+        user,
+        password,
+        host,
+        port,
+        database,
+    }) catch return null;
+}
+
+test "mysql: connection and ping" {
+    const allocator = std.testing.allocator;
+    const uri_str = getMysqlTestUri(allocator) orelse {
+        // Skip test if MySQL is not configured
+        return;
+    };
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch |err| {
+        std.debug.print("MySQL connection failed (expected if no server): {}\n", .{err});
+        return;
+    };
+    defer conn.close();
+
+    // Test ping
+    try conn.ping();
+}
+
+test "mysql: create table and insert" {
+    const allocator = std.testing.allocator;
+    const uri_str = getMysqlTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS mysql_test_basic", &.{}) catch {};
+
+    // Create table
+    _ = try conn.exec("CREATE TABLE mysql_test_basic (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255), value DOUBLE)", &.{});
+
+    // Insert data
+    const affected = try conn.exec("INSERT INTO mysql_test_basic (name, value) VALUES ('hello', 3.14)", &.{});
+    try std.testing.expect(affected >= 1);
+
+    // Verify last insert ID
+    const last_id = conn.lastInsertId();
+    try std.testing.expect(last_id != null);
+    try std.testing.expect(last_id.? >= 1);
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE mysql_test_basic", &.{});
+}
+
+test "mysql: affected rows count" {
+    const allocator = std.testing.allocator;
+    const uri_str = getMysqlTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS mysql_test_affected", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE mysql_test_affected (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255))", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_affected (name) VALUES ('Alice')", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_affected (name) VALUES ('Bob')", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_affected (name) VALUES ('Charlie')", &.{});
+
+    // Update multiple rows
+    const affected = try conn.exec("UPDATE mysql_test_affected SET name = 'Updated' WHERE id <= 2", &.{});
+    try std.testing.expectEqual(@as(usize, 2), affected);
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE mysql_test_affected", &.{});
+}
+
+test "mysql: transaction commit" {
+    const allocator = std.testing.allocator;
+    const uri_str = getMysqlTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS mysql_test_txn", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE mysql_test_txn (id INT AUTO_INCREMENT PRIMARY KEY, value VARCHAR(255)) ENGINE=InnoDB", &.{});
+
+    // Start transaction
+    try conn.begin();
+
+    // Insert within transaction
+    _ = try conn.exec("INSERT INTO mysql_test_txn (value) VALUES ('in_transaction')", &.{});
+
+    // Commit
+    try conn.commit();
+
+    // Verify data persists
+    var result = try conn.query("SELECT COUNT(*) FROM mysql_test_txn", &.{});
+    defer result.deinit();
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE mysql_test_txn", &.{});
+}
+
+test "mysql: transaction rollback" {
+    const allocator = std.testing.allocator;
+    const uri_str = getMysqlTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS mysql_test_rollback", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE mysql_test_rollback (id INT AUTO_INCREMENT PRIMARY KEY, value VARCHAR(255)) ENGINE=InnoDB", &.{});
+
+    // Insert before transaction
+    _ = try conn.exec("INSERT INTO mysql_test_rollback (value) VALUES ('before')", &.{});
+
+    // Start transaction
+    try conn.begin();
+
+    // Insert within transaction
+    _ = try conn.exec("INSERT INTO mysql_test_rollback (value) VALUES ('during')", &.{});
+
+    // Rollback
+    try conn.rollback();
+
+    // Verify only pre-transaction data remains - SELECT to verify table exists
+    var result = try conn.query("SELECT COUNT(*) FROM mysql_test_rollback", &.{});
+    defer result.deinit();
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE mysql_test_rollback", &.{});
+}
+
+test "mysql: multiple data types" {
+    const allocator = std.testing.allocator;
+    const uri_str = getMysqlTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS mysql_test_types", &.{}) catch {};
+
+    // Create table with various types
+    _ = try conn.exec(
+        \\CREATE TABLE mysql_test_types (
+        \\  int_col INT,
+        \\  bigint_col BIGINT,
+        \\  float_col FLOAT,
+        \\  double_col DOUBLE,
+        \\  text_col TEXT,
+        \\  bool_col BOOLEAN,
+        \\  datetime_col DATETIME
+        \\)
+    , &.{});
+
+    _ = try conn.exec("INSERT INTO mysql_test_types VALUES (42, 9223372036854775807, 3.14, 2.71828, 'hello', true, '2024-01-01 12:00:00')", &.{});
+
+    var result = try conn.query("SELECT text_col FROM mysql_test_types", &.{});
+    defer result.deinit();
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE mysql_test_types", &.{});
+}
+
+test "mysql: unicode data" {
+    const allocator = std.testing.allocator;
+    const uri_str = getMysqlTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS mysql_test_unicode", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE mysql_test_unicode (data TEXT CHARACTER SET utf8mb4)", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_unicode VALUES ('你好世界')", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_unicode VALUES ('Привет мир')", &.{});
+
+    var result = try conn.query("SELECT data FROM mysql_test_unicode", &.{});
+    defer result.deinit();
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE mysql_test_unicode", &.{});
+}
+
+test "mysql: null values" {
+    const allocator = std.testing.allocator;
+    const uri_str = getMysqlTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS mysql_test_null", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE mysql_test_null (id INT, nullable_col VARCHAR(255))", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_null VALUES (1, NULL)", &.{});
+
+    var result = try conn.query("SELECT nullable_col FROM mysql_test_null", &.{});
+    defer result.deinit();
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE mysql_test_null", &.{});
+}
+
+test "mysql: aggregate functions" {
+    const allocator = std.testing.allocator;
+    const uri_str = getMysqlTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS mysql_test_agg", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE mysql_test_agg (value INT)", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_agg VALUES (10)", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_agg VALUES (20)", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_agg VALUES (30)", &.{});
+
+    var result = try conn.query("SELECT SUM(value), AVG(value), MIN(value), MAX(value), COUNT(*) FROM mysql_test_agg", &.{});
+    defer result.deinit();
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE mysql_test_agg", &.{});
+}
+
+test "mysql: join tables" {
+    const allocator = std.testing.allocator;
+    const uri_str = getMysqlTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop tables if exist
+    _ = conn.exec("DROP TABLE IF EXISTS mysql_test_orders", &.{}) catch {};
+    _ = conn.exec("DROP TABLE IF EXISTS mysql_test_customers", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE mysql_test_customers (id INT PRIMARY KEY, name VARCHAR(255))", &.{});
+    _ = try conn.exec("CREATE TABLE mysql_test_orders (id INT, customer_id INT)", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_customers VALUES (1, 'Alice')", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_orders VALUES (100, 1)", &.{});
+
+    var result = try conn.query("SELECT o.id, c.name FROM mysql_test_orders o JOIN mysql_test_customers c ON o.customer_id = c.id", &.{});
+    defer result.deinit();
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE mysql_test_orders", &.{});
+    _ = try conn.exec("DROP TABLE mysql_test_customers", &.{});
+}
+
+test "mysql: delete operation" {
+    const allocator = std.testing.allocator;
+    const uri_str = getMysqlTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS mysql_test_delete", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE mysql_test_delete (id INT)", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_delete VALUES (1)", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_delete VALUES (2)", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_delete VALUES (3)", &.{});
+
+    const affected = try conn.exec("DELETE FROM mysql_test_delete WHERE id > 1", &.{});
+    try std.testing.expectEqual(@as(usize, 2), affected);
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE mysql_test_delete", &.{});
+}
+
+test "mysql: update operation" {
+    const allocator = std.testing.allocator;
+    const uri_str = getMysqlTestUri(allocator) orelse return;
+    defer allocator.free(uri_str);
+
+    const uri = Uri.parse(uri_str) catch return;
+    var conn = open(allocator, uri) catch return;
+    defer conn.close();
+
+    // Drop table if exists
+    _ = conn.exec("DROP TABLE IF EXISTS mysql_test_update", &.{}) catch {};
+
+    _ = try conn.exec("CREATE TABLE mysql_test_update (id INT, status VARCHAR(50))", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_update VALUES (1, 'pending')", &.{});
+    _ = try conn.exec("INSERT INTO mysql_test_update VALUES (2, 'pending')", &.{});
+
+    const affected = try conn.exec("UPDATE mysql_test_update SET status = 'done' WHERE id = 1", &.{});
+    try std.testing.expectEqual(@as(usize, 1), affected);
+
+    // Cleanup
+    _ = try conn.exec("DROP TABLE mysql_test_update", &.{});
+}

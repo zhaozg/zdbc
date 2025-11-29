@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: zdbc_test
+          POSTGRES_PASSWORD: zdbc_test_pass
+          POSTGRES_DB: zdbc_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: zdbc_test_pass
+          MYSQL_DATABASE: zdbc_test
+          MYSQL_USER: zdbc_test
+          MYSQL_PASSWORD: zdbc_test_pass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Check code format
+        run: zig fmt --check src
+
+      - name: Build
+        run: zig build
+
+      - name: Run tests
+        run: zig build test
+        env:
+          ZDBC_PG_HOST: localhost
+          ZDBC_PG_PORT: 5432
+          ZDBC_PG_USER: zdbc_test
+          ZDBC_PG_PASSWORD: zdbc_test_pass
+          ZDBC_PG_DATABASE: zdbc_test
+          ZDBC_MYSQL_HOST: 127.0.0.1
+          ZDBC_MYSQL_PORT: 3306
+          ZDBC_MYSQL_USER: zdbc_test
+          ZDBC_MYSQL_PASSWORD: zdbc_test_pass
+          ZDBC_MYSQL_DATABASE: zdbc_test
