@@ -6,7 +6,7 @@
     .dependencies = .{
         .zqlite = .{
             .url = "git+https://github.com/karlseguin/zqlite.zig#master",
-            .hash = "zqlite-0.0.0-RWLaY-C4mADQvgmoLhHD-cHtCgKYdQNAoqASip2uJzBL",
+            .hash = "zqlite-0.0.0-RWLaY6-4mAAceyQC4-JErx7QhziF012dEIm1KChsOTs9",
         },
         .pg = .{
             .url = "git+https://github.com/karlseguin/pg.zig#master",
