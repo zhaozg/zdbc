@@ -10,3 +10,8 @@ zig-cache/
 # OS
 .DS_Store
 Thumbs.db
+
+# Example database files
+*.db
+*.db-shm
+*.db-wal
