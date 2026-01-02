@@ -214,11 +214,28 @@ zig build
 # Run tests
 zig build test
 
-# Run the example
+# Run the basic example
 zig build run
+
+# Run the high-performance log example (1M records)
+zig build run-log
 
 # Format code
 zig fmt src
+```
+
+## Examples
+
+See the [`examples/`](examples/) directory for detailed examples:
+
+- **[log.zig](examples/log.zig)** - High-performance bulk insert demonstration
+  - Inserts 1 million log records using optimized batching
+  - Demonstrates transaction batching, multi-value INSERTs, and SQLite tuning
+  - Achieves ~4,000+ records/second throughput
+
+```bash
+# Run the log example
+zig build run-log
 ```
 
 ## Requirements
