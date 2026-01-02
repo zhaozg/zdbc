@@ -38,7 +38,7 @@
 //!
 //! ## Further Optimizations
 //! For even better performance, consider:
-//! - Using prepared statements with parameter binding (not shown for simplicity)
+//! - Using prepared statements with parameter binding (now demonstrated in comparison mode)
 //! - Increasing batch size (trade-off: memory usage vs performance)
 //! - Using in-memory database then copying to disk
 //! - Disabling indexes entirely for bulk loads, then rebuilding
@@ -55,11 +55,13 @@
 //! - Multi-value INSERT with Transaction: ~4,184 records/sec (baseline)
 //! - Individual INSERTs with Transaction: ~3,635 records/sec (13% slower)
 //! - Multi-value INSERT without Transaction: ~4,188 records/sec (similar to baseline)
+//! - Parameterized INSERT with Transaction: Performance varies based on driver implementation
 //!
 //! Key findings:
 //! - Transactions provide significant benefits for individual INSERTs
 //! - Multi-value INSERT is fastest regardless of transaction usage
 //! - With PRAGMA synchronous=OFF, transaction overhead is minimal for bulk operations
+//! - Parameterized queries provide SQL injection protection at a potential performance cost
 //!
 //! ## Safety Considerations
 //!
@@ -346,11 +348,45 @@ fn insertBatchIndividual(conn: *zdbc.Connection, allocator: std.mem.Allocator, s
     try conn.commit();
 }
 
+/// Insert batch using parameterized INSERTs with transaction
+/// This approach uses parameter binding (when supported) instead of string formatting.
+/// Note: Current ZDBC SQLite implementation doesn't fully support parameter binding yet,
+/// so this serves as a demonstration and future-proofing for when it's implemented.
+fn insertBatchParameterized(conn: *zdbc.Connection, allocator: std.mem.Allocator, start_idx: usize, batch_size: usize) !void {
+    try conn.begin();
+    errdefer conn.rollback() catch {};
+
+    const sql = "INSERT INTO logs (timestamp, who, operation, target, result, remark) VALUES (?, ?, ?, ?, ?, ?)";
+
+    var i: usize = 0;
+    while (i < batch_size) : (i += 1) {
+        const entry = try generateLogEntry(allocator, start_idx + i);
+        defer allocator.free(entry.remark);
+
+        // Allocate remark string that will live through the exec call
+        const remark = try allocator.dupe(u8, entry.remark);
+        defer allocator.free(remark);
+
+        // Use parameterized query with zdbc.Value
+        _ = try conn.exec(sql, &.{
+            zdbc.Value.initInt(entry.timestamp),
+            zdbc.Value.initText(entry.who),
+            zdbc.Value.initText(entry.operation),
+            zdbc.Value.initText(entry.target),
+            zdbc.Value.initText(entry.result),
+            zdbc.Value.initText(remark),
+        });
+    }
+
+    try conn.commit();
+}
+
 /// Performance comparison mode
 const ComparisonMode = enum {
     multi_value_with_transaction, // Default: Multi-value INSERT with transaction
     individual_with_transaction, // Individual INSERTs with transaction
     multi_value_no_transaction, // Multi-value INSERT without transaction
+    parameterized_with_transaction, // Individual parameterized INSERTs with transaction
 };
 
 /// Run performance comparison
@@ -362,6 +398,7 @@ fn runComparison(allocator: std.mem.Allocator, config: Config) !void {
         .{ .mode = .multi_value_with_transaction, .name = "Multi-value INSERT with Transaction" },
         .{ .mode = .individual_with_transaction, .name = "Individual INSERTs with Transaction" },
         .{ .mode = .multi_value_no_transaction, .name = "Multi-value INSERT without Transaction" },
+        .{ .mode = .parameterized_with_transaction, .name = "Parameterized INSERT with Transaction" },
     };
 
     std.debug.print("\n=== Performance Comparison ===\n\n", .{});
@@ -393,6 +430,7 @@ fn runComparison(allocator: std.mem.Allocator, config: Config) !void {
         const total_batches = (config.total_records + config.batch_size - 1) / config.batch_size;
 
         var batch_idx: usize = 0;
+        var failed = false;
         while (batch_idx < total_batches) : (batch_idx += 1) {
             const start_idx = batch_idx * config.batch_size;
             const remaining = config.total_records - start_idx;
@@ -402,18 +440,29 @@ fn runComparison(allocator: std.mem.Allocator, config: Config) !void {
                 .multi_value_with_transaction => try insertBatch(&conn, allocator, start_idx, current_batch_size),
                 .individual_with_transaction => try insertBatchIndividual(&conn, allocator, start_idx, current_batch_size),
                 .multi_value_no_transaction => try insertBatchNoTransaction(&conn, allocator, start_idx, current_batch_size),
+                .parameterized_with_transaction => {
+                    insertBatchParameterized(&conn, allocator, start_idx, current_batch_size) catch |err| {
+                        std.debug.print("  ✗ Failed: {}\n", .{err});
+                        std.debug.print("  Note: Parameterized queries require full parameter binding support in the driver.\n", .{});
+                        std.debug.print("        The SQLite driver currently does not implement parameter binding.\n\n", .{});
+                        failed = true;
+                        break;
+                    };
+                },
             }
 
             total_inserted += current_batch_size;
         }
 
-        const elapsed = std.time.milliTimestamp() - start_time;
-        const rate = if (elapsed > 0)
-            @as(f64, @floatFromInt(total_inserted)) / (@as(f64, @floatFromInt(elapsed)) / 1000.0)
-        else
-            0.0;
+        if (!failed) {
+            const elapsed = std.time.milliTimestamp() - start_time;
+            const rate = if (elapsed > 0)
+                @as(f64, @floatFromInt(total_inserted)) / (@as(f64, @floatFromInt(elapsed)) / 1000.0)
+            else
+                0.0;
 
-        std.debug.print("  ✓ Completed in {} ms ({d:.0} records/sec)\n\n", .{ elapsed, rate });
+            std.debug.print("  ✓ Completed in {} ms ({d:.0} records/sec)\n\n", .{ elapsed, rate });
+        }
     }
 
     std.debug.print("=== Comparison Complete ===\n", .{});
