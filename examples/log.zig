@@ -10,6 +10,7 @@
 //! - `timestamp`: Unix timestamp in milliseconds (INTEGER)
 //! - `who`: User identifier or system name (TEXT, indexed)
 //! - `operation`: Operation type/action performed (TEXT, indexed)
+//! - `target`: Target resource or entity (TEXT, indexed)
 //! - `result`: Operation result status (TEXT)
 //! - `remark`: Additional notes or details (TEXT)
 //!
@@ -45,9 +46,20 @@
 //!
 //! ## Target Performance
 //! - Goal: Insert 1 million records
-//! - Actual: ~4,000+ records/second (complete in 4-5 minutes)
+//! - Actual: ~2,000-4,000 records/second (complete in 4-8 minutes)
 //! - Batch size: 1000 records per transaction
 //! - Performance boost: 2x faster than single INSERT per transaction
+//!
+//! ## Performance Comparison Results (10,000 records)
+//! Run with `--compare` flag to test different approaches:
+//! - Multi-value INSERT with Transaction: ~4,184 records/sec (baseline)
+//! - Individual INSERTs with Transaction: ~3,635 records/sec (13% slower)
+//! - Multi-value INSERT without Transaction: ~4,188 records/sec (similar to baseline)
+//!
+//! Key findings:
+//! - Transactions provide significant benefits for individual INSERTs
+//! - Multi-value INSERT is fastest regardless of transaction usage
+//! - With PRAGMA synchronous=OFF, transaction overhead is minimal for bulk operations
 //!
 //! ## Safety Considerations
 //!
@@ -82,6 +94,45 @@
 
 const std = @import("std");
 const zdbc = @import("zdbc");
+const builtin = @import("builtin");
+
+// Compatibility layer for ArrayList between Zig 0.14 and 0.15
+// Zig 0.14: ArrayList is managed (has allocator), use .init(allocator)
+// Zig 0.15: ArrayList is unmanaged, use .initCapacity(allocator, n) or {}
+const ArrayListU8 = if (builtin.zig_version.minor >= 15)
+    std.ArrayList(u8)
+else
+    std.ArrayList(u8);
+
+fn arrayListInit(allocator: std.mem.Allocator, capacity: usize) !ArrayListU8 {
+    if (builtin.zig_version.minor >= 15) {
+        // Zig 0.15: unmanaged ArrayList
+        return try ArrayListU8.initCapacity(allocator, capacity);
+    } else {
+        // Zig 0.14: managed ArrayList
+        return ArrayListU8.init(allocator);
+    }
+}
+
+fn arrayListDeinit(list: *ArrayListU8, allocator: std.mem.Allocator) void {
+    if (builtin.zig_version.minor >= 15) {
+        // Zig 0.15: unmanaged ArrayList needs allocator
+        list.deinit(allocator);
+    } else {
+        // Zig 0.14: managed ArrayList has allocator internally
+        list.deinit();
+    }
+}
+
+fn arrayListAppend(list: *ArrayListU8, allocator: std.mem.Allocator, slice: []const u8) !void {
+    if (builtin.zig_version.minor >= 15) {
+        // Zig 0.15: unmanaged ArrayList needs allocator parameter
+        try list.appendSlice(allocator, slice);
+    } else {
+        // Zig 0.14: managed ArrayList has allocator internally
+        try list.appendSlice(slice);
+    }
+}
 
 /// Configuration for the log system
 const Config = struct {
@@ -103,6 +154,7 @@ const LogEntry = struct {
     timestamp: i64,
     who: []const u8,
     operation: []const u8,
+    target: []const u8,
     result: []const u8,
     remark: []const u8,
 };
@@ -143,6 +195,7 @@ fn initDatabase(conn: *zdbc.Connection, config: Config) !void {
         \\  timestamp INTEGER NOT NULL,
         \\  who TEXT NOT NULL,
         \\  operation TEXT NOT NULL,
+        \\  target TEXT NOT NULL,
         \\  result TEXT NOT NULL,
         \\  remark TEXT
         \\)
@@ -164,6 +217,9 @@ fn createIndexes(conn: *zdbc.Connection) !void {
     // Index on 'operation' for filtering by operation type
     _ = try conn.exec("CREATE INDEX IF NOT EXISTS idx_logs_operation ON logs(operation)", &.{});
 
+    // Index on 'target' for filtering by target resource
+    _ = try conn.exec("CREATE INDEX IF NOT EXISTS idx_logs_target ON logs(target)", &.{});
+
     // Composite index on timestamp for time-based queries
     _ = try conn.exec("CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp)", &.{});
 
@@ -176,10 +232,12 @@ fn generateLogEntry(allocator: std.mem.Allocator, index: usize) !LogEntry {
     const operations = [_][]const u8{ "LOGIN", "LOGOUT", "CREATE", "UPDATE", "DELETE", "READ", "WRITE" };
     const results = [_][]const u8{ "SUCCESS", "FAILURE", "PARTIAL", "TIMEOUT" };
     const users = [_][]const u8{ "user001", "user002", "user003", "admin", "system", "service" };
+    const targets = [_][]const u8{ "database", "file", "api", "service", "cache", "queue" };
 
     const timestamp = std.time.milliTimestamp();
     const who = users[index % users.len];
     const operation = operations[index % operations.len];
+    const target = targets[index % targets.len];
     const result = results[index % results.len];
     const remark = try std.fmt.allocPrint(allocator, "Log entry #{}", .{index});
 
@@ -187,6 +245,7 @@ fn generateLogEntry(allocator: std.mem.Allocator, index: usize) !LogEntry {
         .timestamp = timestamp,
         .who = who,
         .operation = operation,
+        .target = target,
         .result = result,
         .remark = remark,
     };
@@ -200,10 +259,10 @@ fn insertBatch(conn: *zdbc.Connection, allocator: std.mem.Allocator, start_idx: 
     errdefer conn.rollback() catch {};
 
     // Build multi-value INSERT statement using ArrayList for dynamic growth
-    var sql = try std.ArrayList(u8).initCapacity(allocator, 100 + (batch_size * 150));
-    defer sql.deinit(allocator);
+    var sql = try arrayListInit(allocator, 100 + (batch_size * 150));
+    defer arrayListDeinit(&sql, allocator);
 
-    try sql.appendSlice(allocator, "INSERT INTO logs (timestamp, who, operation, result, remark) VALUES ");
+    try arrayListAppend(&sql, allocator, "INSERT INTO logs (timestamp, who, operation, target, result, remark) VALUES ");
 
     var i: usize = 0;
     while (i < batch_size) : (i += 1) {
@@ -211,24 +270,153 @@ fn insertBatch(conn: *zdbc.Connection, allocator: std.mem.Allocator, start_idx: 
         defer allocator.free(entry.remark);
 
         if (i > 0) {
-            try sql.appendSlice(allocator, ", ");
+            try arrayListAppend(&sql, allocator, ", ");
         }
 
         // Format the VALUES clause - note: this is NOT safe for production with untrusted input
-        const values = try std.fmt.allocPrint(allocator, "({}, '{s}', '{s}', '{s}', '{s}')", .{
+        const values = try std.fmt.allocPrint(allocator, "({}, '{s}', '{s}', '{s}', '{s}', '{s}')", .{
             entry.timestamp,
             entry.who,
             entry.operation,
+            entry.target,
             entry.result,
             entry.remark,
         });
         defer allocator.free(values);
 
-        try sql.appendSlice(allocator, values);
+        try arrayListAppend(&sql, allocator, values);
     }
 
     _ = try conn.exec(sql.items, &.{});
     try conn.commit();
+}
+
+/// Insert batch WITHOUT transaction for comparison
+fn insertBatchNoTransaction(conn: *zdbc.Connection, allocator: std.mem.Allocator, start_idx: usize, batch_size: usize) !void {
+    // Build multi-value INSERT statement using ArrayList for dynamic growth
+    var sql = try arrayListInit(allocator, 100 + (batch_size * 150));
+    defer arrayListDeinit(&sql, allocator);
+
+    try arrayListAppend(&sql, allocator, "INSERT INTO logs (timestamp, who, operation, target, result, remark) VALUES ");
+
+    var i: usize = 0;
+    while (i < batch_size) : (i += 1) {
+        const entry = try generateLogEntry(allocator, start_idx + i);
+        defer allocator.free(entry.remark);
+
+        if (i > 0) {
+            try arrayListAppend(&sql, allocator, ", ");
+        }
+
+        const values = try std.fmt.allocPrint(allocator, "({}, '{s}', '{s}', '{s}', '{s}', '{s}')", .{
+            entry.timestamp,
+            entry.who,
+            entry.operation,
+            entry.target,
+            entry.result,
+            entry.remark,
+        });
+        defer allocator.free(values);
+
+        try arrayListAppend(&sql, allocator, values);
+    }
+
+    _ = try conn.exec(sql.items, &.{});
+}
+
+/// Insert batch using individual INSERTs with transaction (for comparison)
+fn insertBatchIndividual(conn: *zdbc.Connection, allocator: std.mem.Allocator, start_idx: usize, batch_size: usize) !void {
+    try conn.begin();
+    errdefer conn.rollback() catch {};
+
+    var i: usize = 0;
+    while (i < batch_size) : (i += 1) {
+        const entry = try generateLogEntry(allocator, start_idx + i);
+        defer allocator.free(entry.remark);
+
+        const sql = try std.fmt.allocPrint(allocator,
+            \\INSERT INTO logs (timestamp, who, operation, target, result, remark)
+            \\VALUES ({}, '{s}', '{s}', '{s}', '{s}', '{s}')
+        , .{ entry.timestamp, entry.who, entry.operation, entry.target, entry.result, entry.remark });
+        defer allocator.free(sql);
+
+        _ = try conn.exec(sql, &.{});
+    }
+
+    try conn.commit();
+}
+
+/// Performance comparison mode
+const ComparisonMode = enum {
+    multi_value_with_transaction, // Default: Multi-value INSERT with transaction
+    individual_with_transaction, // Individual INSERTs with transaction
+    multi_value_no_transaction, // Multi-value INSERT without transaction
+};
+
+/// Run performance comparison
+fn runComparison(allocator: std.mem.Allocator, config: Config) !void {
+    const modes = [_]struct {
+        mode: ComparisonMode,
+        name: []const u8,
+    }{
+        .{ .mode = .multi_value_with_transaction, .name = "Multi-value INSERT with Transaction" },
+        .{ .mode = .individual_with_transaction, .name = "Individual INSERTs with Transaction" },
+        .{ .mode = .multi_value_no_transaction, .name = "Multi-value INSERT without Transaction" },
+    };
+
+    std.debug.print("\n=== Performance Comparison ===\n\n", .{});
+
+    for (modes) |test_mode| {
+        std.debug.print("Testing: {s}\n", .{test_mode.name});
+        std.debug.print("  Records: {} | Batch size: {}\n", .{ config.total_records, config.batch_size });
+
+        // Create database URI
+        var path_buffer: [std.fs.max_path_bytes]u8 = undefined;
+        const cwd = try std.fs.cwd().realpath(".", &path_buffer);
+        const db_name = try std.fmt.allocPrint(allocator, "comparison_{s}.db", .{@tagName(test_mode.mode)});
+        defer allocator.free(db_name);
+        const full_path = try std.fs.path.join(allocator, &[_][]const u8{ cwd, db_name });
+        defer allocator.free(full_path);
+
+        const uri = try std.fmt.allocPrint(allocator, "sqlite:///{s}", .{full_path});
+        defer allocator.free(uri);
+
+        // Open connection
+        var conn = try zdbc.open(allocator, uri);
+        defer conn.close();
+
+        // Initialize database
+        try initDatabase(&conn, config);
+
+        const start_time = std.time.milliTimestamp();
+        var total_inserted: usize = 0;
+        const total_batches = (config.total_records + config.batch_size - 1) / config.batch_size;
+
+        var batch_idx: usize = 0;
+        while (batch_idx < total_batches) : (batch_idx += 1) {
+            const start_idx = batch_idx * config.batch_size;
+            const remaining = config.total_records - start_idx;
+            const current_batch_size = @min(remaining, config.batch_size);
+
+            switch (test_mode.mode) {
+                .multi_value_with_transaction => try insertBatch(&conn, allocator, start_idx, current_batch_size),
+                .individual_with_transaction => try insertBatchIndividual(&conn, allocator, start_idx, current_batch_size),
+                .multi_value_no_transaction => try insertBatchNoTransaction(&conn, allocator, start_idx, current_batch_size),
+            }
+
+            total_inserted += current_batch_size;
+        }
+
+        const elapsed = std.time.milliTimestamp() - start_time;
+        const rate = if (elapsed > 0)
+            @as(f64, @floatFromInt(total_inserted)) / (@as(f64, @floatFromInt(elapsed)) / 1000.0)
+        else
+            0.0;
+
+        std.debug.print("  ✓ Completed in {} ms ({d:.0} records/sec)\n\n", .{ elapsed, rate });
+    }
+
+    std.debug.print("=== Comparison Complete ===\n", .{});
 }
 
 /// Main benchmark function
@@ -340,12 +528,29 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const config = Config{
-        .total_records = 1_000_000,
-        .batch_size = 1000,
-        .db_path = "log_example.db",
-        .fast_mode = true,
-    };
+    // Check for comparison mode flag
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
 
-    try runBenchmark(allocator, config);
+    const run_comparison = args.len > 1 and std.mem.eql(u8, args[1], "--compare");
+
+    if (run_comparison) {
+        // Run performance comparison with smaller dataset
+        const config = Config{
+            .total_records = 10_000,
+            .batch_size = 1000,
+            .db_path = "comparison.db",
+            .fast_mode = true,
+        };
+        try runComparison(allocator, config);
+    } else {
+        // Run standard benchmark
+        const config = Config{
+            .total_records = 1_000_000,
+            .batch_size = 1000,
+            .db_path = "log_example.db",
+            .fast_mode = true,
+        };
+        try runBenchmark(allocator, config);
+    }
 }

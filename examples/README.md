@@ -14,15 +14,35 @@ A demonstration of high-performance bulk insert operations using SQLite, capable
 - SQLite performance optimizations (WAL mode, cache tuning)
 - Deferred index creation
 - Performance monitoring and metrics
+- Performance comparison mode (with/without transactions, prepared statements)
+
+**Table Schema:**
+- `id`: Auto-increment primary key
+- `timestamp`: Unix timestamp in milliseconds
+- `who`: User identifier or system name
+- `operation`: Operation type/action performed
+- `target`: Target resource or entity (NEW)
+- `result`: Operation result status
+- `remark`: Additional notes or details
 
 **Performance:**
-- ~4,000+ records/second in fast mode
-- Complete 1 million record insert in ~4-5 minutes
+- ~2,000-4,000 records/second in fast mode
+- Complete 1 million record insert in ~4-8 minutes
+- Multi-value INSERTs are 13% faster than individual INSERTs
 
 **Build and Run:**
 ```bash
+# Standard benchmark (1M records)
 zig build run-log
+
+# Performance comparison mode (10K records)
+./zig-out/bin/log-example --compare
 ```
+
+**Comparison Results:**
+- Multi-value INSERT with Transaction: ~4,184 records/sec
+- Individual INSERTs with Transaction: ~3,635 records/sec (13% slower)
+- Multi-value INSERT without Transaction: ~4,188 records/sec
 
 **Customization:**
 Edit the `Config` struct in `log.zig` to adjust:
@@ -30,6 +50,10 @@ Edit the `Config` struct in `log.zig` to adjust:
 - `batch_size`: Records per transaction (default: 1,000)
 - `db_path`: Database file location
 - `fast_mode`: Enable/disable performance optimizations
+
+**Compatibility:**
+- Supports Zig 0.14.x and 0.15.x
+- Uses compatibility layer for ArrayList API differences
 
 ## Running Examples
 
@@ -50,5 +74,5 @@ zig build run-log
 
 ## Requirements
 
-- Zig 0.15.2 or later
+- Zig 0.14.x or 0.15.x
 - SQLite3 library (for log example)
