@@ -50,12 +50,34 @@
 //! - Performance boost: 2x faster than single INSERT per transaction
 //!
 //! ## Safety Considerations
+//!
+//! ### Data Durability
 //! - `synchronous = OFF` may lose data if power fails during writes
 //! - For production, use `synchronous = NORMAL` and accept slower performance
 //! - WAL mode provides better durability than rollback journal
-//! - **SQL Injection**: This example uses string formatting for simplicity
-//!   - In production, always use parameterized queries or prepared statements
-//!   - Validate and sanitize all input data
+//!
+//! ### SQL Injection Risk ⚠️
+//! **IMPORTANT**: This example uses string formatting for SQL construction, which is
+//! vulnerable to SQL injection attacks if used with untrusted input.
+//!
+//! This approach is used here ONLY because:
+//! - All input data is generated internally (controlled)
+//! - The example focuses on performance optimization techniques
+//! - It keeps the code simple and readable
+//!
+//! **For production code, you MUST**:
+//! - Use parameterized queries with zdbc.Value
+//! - Use prepared statements for repeated operations
+//! - Sanitize and validate all user input
+//! - Never concatenate user input directly into SQL
+//!
+//! Example of safe parameterized query:
+//! ```zig
+//! _ = try conn.exec("INSERT INTO logs (who, operation) VALUES (?, ?)", &.{
+//!     zdbc.Value.initText(user_input),
+//!     zdbc.Value.initText(operation_input),
+//! });
+//! ```
 //!
 
 const std = @import("std");
@@ -171,19 +193,17 @@ fn generateLogEntry(allocator: std.mem.Allocator, index: usize) !LogEntry {
 }
 
 /// Insert a batch of log entries using a transaction and multi-value INSERT
+/// WARNING: This uses string formatting instead of parameterized queries for demonstration.
+/// In production code, always use prepared statements or parameterized queries to prevent SQL injection.
 fn insertBatch(conn: *zdbc.Connection, allocator: std.mem.Allocator, start_idx: usize, batch_size: usize) !void {
     try conn.begin();
     errdefer conn.rollback() catch {};
 
-    // Build multi-value INSERT statement - pre-allocate estimated size
-    const est_size = 100 + (batch_size * 150); // rough estimate
-    const sql_buf = try allocator.alloc(u8, est_size);
-    defer allocator.free(sql_buf);
+    // Build multi-value INSERT statement using ArrayList for dynamic growth
+    var sql = try std.ArrayList(u8).initCapacity(allocator, 100 + (batch_size * 150));
+    defer sql.deinit(allocator);
 
-    var fbs = std.io.fixedBufferStream(sql_buf);
-    var writer = fbs.writer();
-
-    try writer.writeAll("INSERT INTO logs (timestamp, who, operation, result, remark) VALUES ");
+    try sql.appendSlice(allocator, "INSERT INTO logs (timestamp, who, operation, result, remark) VALUES ");
 
     var i: usize = 0;
     while (i < batch_size) : (i += 1) {
@@ -191,20 +211,23 @@ fn insertBatch(conn: *zdbc.Connection, allocator: std.mem.Allocator, start_idx: 
         defer allocator.free(entry.remark);
 
         if (i > 0) {
-            try writer.writeAll(", ");
+            try sql.appendSlice(allocator, ", ");
         }
 
-        try writer.print("({}, '{s}', '{s}', '{s}', '{s}')", .{
+        // Format the VALUES clause - note: this is NOT safe for production with untrusted input
+        const values = try std.fmt.allocPrint(allocator, "({}, '{s}', '{s}', '{s}', '{s}')", .{
             entry.timestamp,
             entry.who,
             entry.operation,
             entry.result,
             entry.remark,
         });
+        defer allocator.free(values);
+
+        try sql.appendSlice(allocator, values);
     }
 
-    const sql = fbs.getWritten();
-    _ = try conn.exec(sql, &.{});
+    _ = try conn.exec(sql.items, &.{});
     try conn.commit();
 }
 
