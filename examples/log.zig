@@ -363,10 +363,6 @@ fn insertBatchParameterized(conn: *zdbc.Connection, allocator: std.mem.Allocator
         const entry = try generateLogEntry(allocator, start_idx + i);
         defer allocator.free(entry.remark);
 
-        // Allocate remark string that will live through the exec call
-        const remark = try allocator.dupe(u8, entry.remark);
-        defer allocator.free(remark);
-
         // Use parameterized query with zdbc.Value
         _ = try conn.exec(sql, &.{
             zdbc.Value.initInt(entry.timestamp),
@@ -374,7 +370,7 @@ fn insertBatchParameterized(conn: *zdbc.Connection, allocator: std.mem.Allocator
             zdbc.Value.initText(entry.operation),
             zdbc.Value.initText(entry.target),
             zdbc.Value.initText(entry.result),
-            zdbc.Value.initText(remark),
+            zdbc.Value.initText(entry.remark),
         });
     }
 
