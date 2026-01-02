@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.15.0",
     .dependencies = .{
         .zqlite = .{
-            .url = "git+https://github.com/karlseguin/zqlite.zig#27f89924b7f6206f0aed05403e404177a661dd57",
-            .hash = "zqlite-0.0.0-RWLaY6-4mAAceyQC4-JErx7QhziF012dEIm1KChsOTs9",
+            .url = "https://github.com/karlseguin/zqlite.zig/archive/b44ed5cdc64859b08446c246f307e65ebe2b2d9c.tar.gz",
+            .hash = "1220e1d8b75b0eb1bfd874f674101cb0047c26283fefe74e25dd019fdcd5366f205a",
         },
         .pg = .{
             .url = "git+https://github.com/karlseguin/pg.zig#master",

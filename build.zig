@@ -58,26 +58,26 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_main_tests.step);
 
-    // Example module
-    const example_mod = b.createModule(.{
-        .root_source_file = b.path("src/example.zig"),
+    // Simple example module
+    const simple_example_mod = b.createModule(.{
+        .root_source_file = b.path("examples/simple.zig"),
         .target = target,
         .optimize = optimize,
     });
-    example_mod.addImport("zdbc", zdbc_mod);
+    simple_example_mod.addImport("zdbc", zdbc_mod);
 
-    // Example executable
-    const example = b.addExecutable(.{
-        .name = "zdbc-example",
-        .root_module = example_mod,
+    // Simple example executable
+    const simple_example = b.addExecutable(.{
+        .name = "simple-example",
+        .root_module = simple_example_mod,
     });
-    b.installArtifact(example);
+    b.installArtifact(simple_example);
 
-    const run_example = b.addRunArtifact(example);
-    run_example.step.dependOn(b.getInstallStep());
+    const run_simple_example = b.addRunArtifact(simple_example);
+    run_simple_example.step.dependOn(b.getInstallStep());
 
-    const run_step = b.step("run", "Run the example");
-    run_step.dependOn(&run_example.step);
+    const run_step = b.step("run", "Run the simple example");
+    run_step.dependOn(&run_simple_example.step);
 
     // Log example module
     const log_example_mod = b.createModule(.{
