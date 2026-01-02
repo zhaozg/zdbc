@@ -78,4 +78,25 @@ pub fn build(b: *std.Build) void {
 
     const run_step = b.step("run", "Run the example");
     run_step.dependOn(&run_example.step);
+
+    // Log example module
+    const log_example_mod = b.createModule(.{
+        .root_source_file = b.path("examples/log.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    log_example_mod.addImport("zdbc", zdbc_mod);
+
+    // Log example executable
+    const log_example = b.addExecutable(.{
+        .name = "log-example",
+        .root_module = log_example_mod,
+    });
+    b.installArtifact(log_example);
+
+    const run_log_example = b.addRunArtifact(log_example);
+    run_log_example.step.dependOn(b.getInstallStep());
+
+    const run_log_step = b.step("run-log", "Run the high-performance log example");
+    run_log_step.dependOn(&run_log_example.step);
 }
