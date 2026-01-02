@@ -16,6 +16,10 @@ pub const Error = error{
     ExecutionFailed,
     /// Invalid parameter binding
     InvalidParameter,
+    /// Parameter binding failed
+    BindError,
+    /// Statement preparation failed
+    PrepareFailed,
     /// Type conversion error
     TypeMismatch,
     /// Out of memory

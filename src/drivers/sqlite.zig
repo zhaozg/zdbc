@@ -67,6 +67,28 @@ pub const SqliteResultContext = struct {
     }
 };
 
+/// SQLite statement context for prepared statements
+pub const SqliteStatementContext = struct {
+    allocator: std.mem.Allocator,
+    stmt: zqlite.Stmt,
+    parent_ctx: *SqliteContext,
+
+    pub fn init(allocator: std.mem.Allocator, stmt: zqlite.Stmt, parent_ctx: *SqliteContext) !*SqliteStatementContext {
+        const ctx = try allocator.create(SqliteStatementContext);
+        ctx.* = SqliteStatementContext{
+            .allocator = allocator,
+            .stmt = stmt,
+            .parent_ctx = parent_ctx,
+        };
+        return ctx;
+    }
+
+    pub fn deinit(self: *SqliteStatementContext) void {
+        self.stmt.deinit();
+        self.allocator.destroy(self);
+    }
+};
+
 /// VTable for SQLite results
 const sqliteResultVTable = ResultVTable{
     .next = sqliteResultNext,
@@ -149,15 +171,55 @@ pub const sqliteConnectionVTable = ConnectionVTable{
 fn sqliteExec(ctx: *anyopaque, _: std.mem.Allocator, sql: []const u8, params: []const Value) Error!usize {
     const sqlite_ctx: *SqliteContext = @ptrCast(@alignCast(ctx));
 
-    // Convert to null-terminated string
-    const sql_z = sqlite_ctx.allocator.dupeZ(u8, sql) catch return Error.OutOfMemory;
-    defer sqlite_ctx.allocator.free(sql_z);
+    if (params.len > 0) {
+        // Use prepared statement with parameter binding
+        const stmt = sqlite_ctx.conn.prepare(sql) catch return Error.PrepareFailed;
+        defer stmt.deinit();
 
-    // Execute with no params for now (zqlite uses different param binding)
-    _ = params;
-    sqlite_ctx.conn.execNoArgs(sql_z) catch {
-        return Error.ExecutionFailed;
-    };
+        // Bind parameters - zqlite.Stmt.bind expects a tuple
+        // We need to convert our Value array to zqlite-compatible values
+        // For now, we'll bind them one by one using bindValue
+        for (params, 0..) |param, i| {
+            switch (param) {
+                .null => {
+                    stmt.bindValue(@as(?i64, null), i) catch return Error.BindError;
+                },
+                .boolean => |b| {
+                    const val: i64 = if (b) 1 else 0;
+                    stmt.bindValue(val, i) catch return Error.BindError;
+                },
+                .int => |val| {
+                    stmt.bindValue(val, i) catch return Error.BindError;
+                },
+                .uint => |val| {
+                    if (val <= std.math.maxInt(i64)) {
+                        stmt.bindValue(@as(i64, @intCast(val)), i) catch return Error.BindError;
+                    } else {
+                        return Error.BindError;
+                    }
+                },
+                .float => |val| {
+                    stmt.bindValue(val, i) catch return Error.BindError;
+                },
+                .text => |val| {
+                    stmt.bindValue(val, i) catch return Error.BindError;
+                },
+                .blob => |val| {
+                    stmt.bindValue(val, i) catch return Error.BindError;
+                },
+            }
+        }
+
+        stmt.stepToCompletion() catch return Error.ExecutionFailed;
+    } else {
+        // No params - use execNoArgs for performance
+        const sql_z = sqlite_ctx.allocator.dupeZ(u8, sql) catch return Error.OutOfMemory;
+        defer sqlite_ctx.allocator.free(sql_z);
+
+        sqlite_ctx.conn.execNoArgs(sql_z) catch {
+            return Error.ExecutionFailed;
+        };
+    }
 
     sqlite_ctx.affected_rows = sqlite_ctx.conn.changes();
     sqlite_ctx.last_insert_id = sqlite_ctx.conn.lastInsertedRowId();
@@ -183,8 +245,118 @@ fn sqliteQuery(ctx: *anyopaque, allocator: std.mem.Allocator, sql: []const u8, p
     return Result.init(@ptrCast(result_ctx), &sqliteResultVTable);
 }
 
-fn sqlitePrepare(_: *anyopaque, _: std.mem.Allocator, _: []const u8) Error!Statement {
+// ============================================================================
+// Statement Implementation
+// ============================================================================
+
+/// VTable for SQLite statements
+const sqliteStatementVTable = StatementVTable{
+    .bind = sqliteStatementBind,
+    .bindAll = sqliteStatementBindAll,
+    .exec = sqliteStatementExec,
+    .query = sqliteStatementQuery,
+    .clearBindings = sqliteStatementClearBindings,
+    .reset = sqliteStatementReset,
+    .paramCount = sqliteStatementParamCount,
+    .deinit = sqliteStatementDeinit,
+};
+
+fn sqliteStatementBind(ctx: *anyopaque, index: usize, value: Value) Error!void {
+    const stmt_ctx: *SqliteStatementContext = @ptrCast(@alignCast(ctx));
+
+    // Convert ZDBC value to appropriate zqlite binding
+    switch (value) {
+        .null => {
+            // For null, we can pass a null pointer - zqlite handles it
+            stmt_ctx.stmt.bindValue(@as(?i64, null), index - 1) catch return Error.BindError;
+        },
+        .boolean => |b| {
+            const val: i64 = if (b) 1 else 0;
+            stmt_ctx.stmt.bindValue(val, index - 1) catch return Error.BindError;
+        },
+        .int => |val| {
+            stmt_ctx.stmt.bindValue(val, index - 1) catch return Error.BindError;
+        },
+        .uint => |val| {
+            // Convert u64 to i64 if possible, otherwise error
+            if (val <= std.math.maxInt(i64)) {
+                stmt_ctx.stmt.bindValue(@as(i64, @intCast(val)), index - 1) catch return Error.BindError;
+            } else {
+                return Error.BindError;
+            }
+        },
+        .float => |val| {
+            stmt_ctx.stmt.bindValue(val, index - 1) catch return Error.BindError;
+        },
+        .text => |val| {
+            stmt_ctx.stmt.bindValue(val, index - 1) catch return Error.BindError;
+        },
+        .blob => |val| {
+            stmt_ctx.stmt.bindValue(val, index - 1) catch return Error.BindError;
+        },
+    }
+}
+
+fn sqliteStatementBindAll(ctx: *anyopaque, values: []const Value) Error!void {
+    for (values, 0..) |value, i| {
+        try sqliteStatementBind(ctx, i + 1, value);
+    }
+}
+
+fn sqliteStatementExec(ctx: *anyopaque) Error!usize {
+    const stmt_ctx: *SqliteStatementContext = @ptrCast(@alignCast(ctx));
+
+    stmt_ctx.stmt.stepToCompletion() catch return Error.ExecutionFailed;
+
+    // Update parent context with affected rows and last insert ID
+    stmt_ctx.parent_ctx.affected_rows = stmt_ctx.parent_ctx.conn.changes();
+    stmt_ctx.parent_ctx.last_insert_id = stmt_ctx.parent_ctx.conn.lastInsertedRowId();
+
+    return stmt_ctx.parent_ctx.affected_rows;
+}
+
+fn sqliteStatementQuery(_: *anyopaque) Error!Result {
+    // For now, query execution through prepared statements is not implemented
+    // Users should use Connection.query() instead
     return Error.NotImplemented;
+}
+
+fn sqliteStatementClearBindings(ctx: *anyopaque) Error!void {
+    const stmt_ctx: *SqliteStatementContext = @ptrCast(@alignCast(ctx));
+    stmt_ctx.stmt.clearBindings() catch return Error.ExecutionFailed;
+}
+
+fn sqliteStatementReset(ctx: *anyopaque) Error!void {
+    const stmt_ctx: *SqliteStatementContext = @ptrCast(@alignCast(ctx));
+    stmt_ctx.stmt.reset() catch return Error.ExecutionFailed;
+}
+
+fn sqliteStatementParamCount(_: *anyopaque) usize {
+    // SQLite doesn't provide a way to get parameter count from statement
+    // This would require parsing or tracking separately
+    return 0;
+}
+
+fn sqliteStatementDeinit(ctx: *anyopaque) void {
+    const stmt_ctx: *SqliteStatementContext = @ptrCast(@alignCast(ctx));
+    stmt_ctx.deinit();
+}
+
+fn sqlitePrepare(ctx: *anyopaque, allocator: std.mem.Allocator, sql: []const u8) Error!Statement {
+    const sqlite_ctx: *SqliteContext = @ptrCast(@alignCast(ctx));
+
+    const stmt = sqlite_ctx.conn.prepare(sql) catch return Error.PrepareFailed;
+
+    const stmt_ctx = SqliteStatementContext.init(allocator, stmt, sqlite_ctx) catch {
+        stmt.deinit();
+        return Error.OutOfMemory;
+    };
+
+    return Statement{
+        .ctx = @ptrCast(stmt_ctx),
+        .vtable = &sqliteStatementVTable,
+        .sql = sql,
+    };
 }
 
 fn sqliteBegin(ctx: *anyopaque) Error!void {
@@ -651,13 +823,28 @@ test "sqlite driver: boundary - very long string" {
     try std.testing.expect(maybe_row != null);
 }
 
-test "sqlite driver: prepare returns not implemented" {
+test "sqlite driver: prepare statement works" {
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
     var conn = try open(std.testing.allocator, uri);
     defer conn.close();
 
-    const result = conn.prepare("SELECT 1");
-    try std.testing.expectError(Error.NotImplemented, result);
+    // Create a test table
+    _ = try conn.exec("CREATE TABLE test_prep (id INTEGER, name TEXT)", &.{});
+
+    // Prepare and execute an INSERT statement
+    var stmt = try conn.prepare("INSERT INTO test_prep (id, name) VALUES (?, ?)");
+    defer stmt.deinit();
+
+    try stmt.bindAll(&.{ Value.initInt(1), Value.initText("test") });
+    const affected = try stmt.exec();
+    try std.testing.expectEqual(@as(usize, 1), affected);
+
+    // Verify the insert worked
+    var result = try conn.query("SELECT COUNT(*) FROM test_prep", &.{});
+    defer result.deinit();
+
+    const has_row = try result.next();
+    try std.testing.expect(has_row != null);
 }
 
 test "sqlite driver: drop table" {
