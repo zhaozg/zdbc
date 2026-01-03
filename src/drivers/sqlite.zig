@@ -132,11 +132,17 @@ fn sqliteResultGetValue(ctx: *anyopaque, index: usize) Error!Value {
         return Error.NoMoreRows;
     }
     const row = result_ctx.current_row.?;
-    // Check if null
-    if (row.nullableText(index)) |text| {
-        return Value.initText(text);
-    }
-    return Value.initNull();
+    
+    // Check the column type and return appropriate value
+    const col_type = row.columnType(index);
+    return switch (col_type) {
+        .int => Value.initInt(row.int(index)),
+        .float => Value.initFloat(row.float(index)),
+        .text => if (row.nullableText(index)) |text| Value.initText(text) else Value.initNull(),
+        .blob => if (row.nullableBlob(index)) |blob| Value.initBlob(blob) else Value.initNull(),
+        .null => Value.initNull(),
+        .unknown => Value.initNull(),
+    };
 }
 
 fn sqliteResultGetValueByName(_: *anyopaque, _: []const u8) Error!Value {
@@ -233,16 +239,84 @@ fn sqliteQuery(ctx: *anyopaque, allocator: std.mem.Allocator, sql: []const u8, p
     const sql_z = sqlite_ctx.allocator.dupeZ(u8, sql) catch return Error.OutOfMemory;
     defer sqlite_ctx.allocator.free(sql_z);
 
-    _ = params;
-    const rows = sqlite_ctx.conn.rows(sql_z, .{}) catch {
-        return Error.ExecutionFailed;
-    };
-
-    const result_ctx = SqliteResultContext.init(allocator) catch return Error.OutOfMemory;
-    result_ctx.rows = rows;
-    // Column count will be available when we have a row
-
-    return Result.init(@ptrCast(result_ctx), &sqliteResultVTable);
+    // If we have params, use prepare and bind
+    if (params.len > 0) {
+        const stmt = sqlite_ctx.conn.prepare(sql_z) catch return Error.PrepareFailed;
+        // Don't defer deinit here - we need to keep it alive for the rows iterator
+        
+        // Bind parameters
+        for (params, 0..) |param, i| {
+            switch (param) {
+                .null => {
+                    stmt.bindValue(@as(?i64, null), i) catch {
+                        stmt.deinit();
+                        return Error.BindError;
+                    };
+                },
+                .boolean => |b| {
+                    const val: i64 = if (b) 1 else 0;
+                    stmt.bindValue(val, i) catch {
+                        stmt.deinit();
+                        return Error.BindError;
+                    };
+                },
+                .int => |val| {
+                    stmt.bindValue(val, i) catch {
+                        stmt.deinit();
+                        return Error.BindError;
+                    };
+                },
+                .uint => |val| {
+                    if (val <= std.math.maxInt(i64)) {
+                        stmt.bindValue(@as(i64, @intCast(val)), i) catch {
+                            stmt.deinit();
+                            return Error.BindError;
+                        };
+                    } else {
+                        stmt.deinit();
+                        return Error.BindError;
+                    }
+                },
+                .float => |val| {
+                    stmt.bindValue(val, i) catch {
+                        stmt.deinit();
+                        return Error.BindError;
+                    };
+                },
+                .text => |val| {
+                    stmt.bindValue(val, i) catch {
+                        stmt.deinit();
+                        return Error.BindError;
+                    };
+                },
+                .blob => |val| {
+                    stmt.bindValue(val, i) catch {
+                        stmt.deinit();
+                        return Error.BindError;
+                    };
+                },
+            }
+        }
+        
+        // Create rows iterator from prepared statement manually
+        const rows = zqlite.Rows{ .stmt = stmt, .err = null };
+        
+        const result_ctx = SqliteResultContext.init(allocator) catch {
+            stmt.deinit();
+            return Error.OutOfMemory;
+        };
+        result_ctx.rows = rows;
+        
+        return Result.init(@ptrCast(result_ctx), &sqliteResultVTable);
+    } else {
+        // No params - use direct query
+        const rows = sqlite_ctx.conn.rows(sql_z, .{}) catch {
+            return Error.ExecutionFailed;
+        };
+        const result_ctx = SqliteResultContext.init(allocator) catch return Error.OutOfMemory;
+        result_ctx.rows = rows;
+        return Result.init(@ptrCast(result_ctx), &sqliteResultVTable);
+    }
 }
 
 // ============================================================================
@@ -1091,4 +1165,324 @@ test "sqlite driver: distinct values" {
     // Only 2 distinct values
     const row3 = try result.next();
     try std.testing.expect(row3 == null);
+}
+
+// ============================================================================
+// Bug Fix Tests - Comprehensive validation of the two critical fixes
+// ============================================================================
+
+test "sqlite driver: BUG FIX #1 - COUNT(*) returns integer not null" {
+    const uri = Uri.parse("sqlite://:memory:") catch unreachable;
+    var conn = try open(std.testing.allocator, uri);
+    defer conn.close();
+
+    _ = try conn.exec("CREATE TABLE count_test (id INTEGER)", &.{});
+    _ = try conn.exec("INSERT INTO count_test VALUES (1)", &.{});
+    _ = try conn.exec("INSERT INTO count_test VALUES (2)", &.{});
+    _ = try conn.exec("INSERT INTO count_test VALUES (3)", &.{});
+
+    var result = try conn.query("SELECT COUNT(*) FROM count_test", &.{});
+    defer result.deinit();
+
+    const maybe_row = try result.next();
+    try std.testing.expect(maybe_row != null);
+    const row = maybe_row.?;
+    
+    // This should return an integer value, not null
+    const count_val = try row.get(0);
+    try std.testing.expect(!count_val.isNull());
+    try std.testing.expectEqual(@as(i64, 3), count_val.asInt().?);
+}
+
+test "sqlite driver: BUG FIX #1 - INTEGER column retrieval" {
+    const uri = Uri.parse("sqlite://:memory:") catch unreachable;
+    var conn = try open(std.testing.allocator, uri);
+    defer conn.close();
+
+    _ = try conn.exec("CREATE TABLE int_test (id INTEGER, value INTEGER)", &.{});
+    _ = try conn.exec("INSERT INTO int_test VALUES (1, 42)", &.{});
+    _ = try conn.exec("INSERT INTO int_test VALUES (2, -100)", &.{});
+
+    var result = try conn.query("SELECT id, value FROM int_test ORDER BY id", &.{});
+    defer result.deinit();
+
+    // First row
+    const maybe_row1 = try result.next();
+    try std.testing.expect(maybe_row1 != null);
+    const row1 = maybe_row1.?;
+    
+    const id1 = try row1.get(0);
+    const val1 = try row1.get(1);
+    try std.testing.expectEqual(@as(i64, 1), id1.asInt().?);
+    try std.testing.expectEqual(@as(i64, 42), val1.asInt().?);
+
+    // Second row
+    const maybe_row2 = try result.next();
+    try std.testing.expect(maybe_row2 != null);
+    const row2 = maybe_row2.?;
+    
+    const id2 = try row2.get(0);
+    const val2 = try row2.get(1);
+    try std.testing.expectEqual(@as(i64, 2), id2.asInt().?);
+    try std.testing.expectEqual(@as(i64, -100), val2.asInt().?);
+}
+
+test "sqlite driver: BUG FIX #1 - FLOAT column retrieval" {
+    const uri = Uri.parse("sqlite://:memory:") catch unreachable;
+    var conn = try open(std.testing.allocator, uri);
+    defer conn.close();
+
+    _ = try conn.exec("CREATE TABLE float_test (id INTEGER, value REAL)", &.{});
+    _ = try conn.exec("INSERT INTO float_test VALUES (1, 3.14159)", &.{});
+    _ = try conn.exec("INSERT INTO float_test VALUES (2, -2.71828)", &.{});
+
+    var result = try conn.query("SELECT value FROM float_test ORDER BY id", &.{});
+    defer result.deinit();
+
+    // First row
+    const maybe_row1 = try result.next();
+    try std.testing.expect(maybe_row1 != null);
+    const row1 = maybe_row1.?;
+    
+    const val1 = try row1.get(0);
+    try std.testing.expectApproxEqAbs(@as(f64, 3.14159), val1.asFloat().?, 0.00001);
+
+    // Second row
+    const maybe_row2 = try result.next();
+    try std.testing.expect(maybe_row2 != null);
+    const row2 = maybe_row2.?;
+    
+    const val2 = try row2.get(0);
+    try std.testing.expectApproxEqAbs(@as(f64, -2.71828), val2.asFloat().?, 0.00001);
+}
+
+test "sqlite driver: BUG FIX #1 - BLOB column retrieval" {
+    const uri = Uri.parse("sqlite://:memory:") catch unreachable;
+    var conn = try open(std.testing.allocator, uri);
+    defer conn.close();
+
+    _ = try conn.exec("CREATE TABLE blob_test (id INTEGER, data BLOB)", &.{});
+    _ = try conn.exec("INSERT INTO blob_test VALUES (1, X'48454C4C4F')", &.{}); // "HELLO" in hex
+
+    var result = try conn.query("SELECT data FROM blob_test", &.{});
+    defer result.deinit();
+
+    const maybe_row = try result.next();
+    try std.testing.expect(maybe_row != null);
+    const row = maybe_row.?;
+    
+    const blob_val = try row.get(0);
+    const blob = blob_val.asBlob().?;
+    try std.testing.expectEqual(@as(usize, 5), blob.len);
+    try std.testing.expectEqualSlices(u8, "HELLO", blob);
+}
+
+test "sqlite driver: BUG FIX #1 - Mixed column types in single query" {
+    const uri = Uri.parse("sqlite://:memory:") catch unreachable;
+    var conn = try open(std.testing.allocator, uri);
+    defer conn.close();
+
+    _ = try conn.exec(
+        \\CREATE TABLE mixed_test (
+        \\  id INTEGER,
+        \\  name TEXT,
+        \\  score REAL,
+        \\  data BLOB,
+        \\  nullable TEXT
+        \\)
+    , &.{});
+    
+    _ = try conn.exec("INSERT INTO mixed_test VALUES (1, 'Alice', 95.5, X'ABCD', NULL)", &.{});
+
+    var result = try conn.query("SELECT id, name, score, data, nullable FROM mixed_test", &.{});
+    defer result.deinit();
+
+    const maybe_row = try result.next();
+    try std.testing.expect(maybe_row != null);
+    const row = maybe_row.?;
+    
+    const id = try row.get(0);
+    const name = try row.get(1);
+    const score = try row.get(2);
+    const data = try row.get(3);
+    const nullable = try row.get(4);
+    
+    try std.testing.expectEqual(@as(i64, 1), id.asInt().?);
+    try std.testing.expectEqualStrings("Alice", name.asText().?);
+    try std.testing.expectApproxEqAbs(@as(f64, 95.5), score.asFloat().?, 0.01);
+    try std.testing.expectEqual(@as(usize, 2), data.asBlob().?.len);
+    try std.testing.expect(nullable.isNull());
+}
+
+test "sqlite driver: BUG FIX #2 - Parameterized SELECT with WHERE clause" {
+    const uri = Uri.parse("sqlite://:memory:") catch unreachable;
+    var conn = try open(std.testing.allocator, uri);
+    defer conn.close();
+
+    _ = try conn.exec("CREATE TABLE param_test (id INTEGER, name TEXT)", &.{});
+    _ = try conn.exec("INSERT INTO param_test VALUES (1, 'Alice')", &.{});
+    _ = try conn.exec("INSERT INTO param_test VALUES (2, 'Bob')", &.{});
+    _ = try conn.exec("INSERT INTO param_test VALUES (3, 'Charlie')", &.{});
+
+    // Query with parameter
+    var result = try conn.query("SELECT name FROM param_test WHERE id = ?", &.{Value.initInt(2)});
+    defer result.deinit();
+
+    const maybe_row = try result.next();
+    try std.testing.expect(maybe_row != null);
+    const row = maybe_row.?;
+    
+    const name = try row.get(0);
+    try std.testing.expectEqualStrings("Bob", name.asText().?);
+    
+    // Should only have one matching row
+    const maybe_row2 = try result.next();
+    try std.testing.expect(maybe_row2 == null);
+}
+
+test "sqlite driver: BUG FIX #2 - Parameterized query with multiple parameters" {
+    const uri = Uri.parse("sqlite://:memory:") catch unreachable;
+    var conn = try open(std.testing.allocator, uri);
+    defer conn.close();
+
+    _ = try conn.exec("CREATE TABLE range_test (value INTEGER)", &.{});
+    _ = try conn.exec("INSERT INTO range_test VALUES (5)", &.{});
+    _ = try conn.exec("INSERT INTO range_test VALUES (10)", &.{});
+    _ = try conn.exec("INSERT INTO range_test VALUES (15)", &.{});
+    _ = try conn.exec("INSERT INTO range_test VALUES (20)", &.{});
+
+    // Query with two parameters
+    var result = try conn.query(
+        "SELECT value FROM range_test WHERE value >= ? AND value <= ? ORDER BY value",
+        &.{Value.initInt(8), Value.initInt(18)}
+    );
+    defer result.deinit();
+
+    // Should match 10 and 15
+    const maybe_row1 = try result.next();
+    try std.testing.expect(maybe_row1 != null);
+    const row1 = maybe_row1.?;
+    const val1 = try row1.get(0);
+    try std.testing.expectEqual(@as(i64, 10), val1.asInt().?);
+
+    const maybe_row2 = try result.next();
+    try std.testing.expect(maybe_row2 != null);
+    const row2 = maybe_row2.?;
+    const val2 = try row2.get(0);
+    try std.testing.expectEqual(@as(i64, 15), val2.asInt().?);
+
+    const maybe_row3 = try result.next();
+    try std.testing.expect(maybe_row3 == null);
+}
+
+test "sqlite driver: BUG FIX #2 - Parameterized query with TEXT parameter" {
+    const uri = Uri.parse("sqlite://:memory:") catch unreachable;
+    var conn = try open(std.testing.allocator, uri);
+    defer conn.close();
+
+    _ = try conn.exec("CREATE TABLE text_param_test (id INTEGER, name TEXT)", &.{});
+    _ = try conn.exec("INSERT INTO text_param_test VALUES (1, 'Alice')", &.{});
+    _ = try conn.exec("INSERT INTO text_param_test VALUES (2, 'Bob')", &.{});
+
+    var result = try conn.query("SELECT id FROM text_param_test WHERE name = ?", &.{Value.initText("Alice")});
+    defer result.deinit();
+
+    const maybe_row = try result.next();
+    try std.testing.expect(maybe_row != null);
+    const row = maybe_row.?;
+    
+    const id = try row.get(0);
+    try std.testing.expectEqual(@as(i64, 1), id.asInt().?);
+}
+
+test "sqlite driver: BUG FIX #2 - Parameterized query with FLOAT parameter" {
+    const uri = Uri.parse("sqlite://:memory:") catch unreachable;
+    var conn = try open(std.testing.allocator, uri);
+    defer conn.close();
+
+    _ = try conn.exec("CREATE TABLE float_param_test (id INTEGER, score REAL)", &.{});
+    _ = try conn.exec("INSERT INTO float_param_test VALUES (1, 85.5)", &.{});
+    _ = try conn.exec("INSERT INTO float_param_test VALUES (2, 92.3)", &.{});
+    _ = try conn.exec("INSERT INTO float_param_test VALUES (3, 78.9)", &.{});
+
+    var result = try conn.query("SELECT id FROM float_param_test WHERE score > ?", &.{Value.initFloat(90.0)});
+    defer result.deinit();
+
+    const maybe_row = try result.next();
+    try std.testing.expect(maybe_row != null);
+    const row = maybe_row.?;
+    
+    const id = try row.get(0);
+    try std.testing.expectEqual(@as(i64, 2), id.asInt().?);
+    
+    // Only one row should match
+    const maybe_row2 = try result.next();
+    try std.testing.expect(maybe_row2 == null);
+}
+
+test "sqlite driver: BUG FIX #2 - Parameterized query with NULL parameter" {
+    const uri = Uri.parse("sqlite://:memory:") catch unreachable;
+    var conn = try open(std.testing.allocator, uri);
+    defer conn.close();
+
+    _ = try conn.exec("CREATE TABLE null_param_test (id INTEGER, value TEXT)", &.{});
+    _ = try conn.exec("INSERT INTO null_param_test VALUES (1, 'data')", &.{});
+    _ = try conn.exec("INSERT INTO null_param_test VALUES (2, NULL)", &.{});
+
+    var result = try conn.query("SELECT id FROM null_param_test WHERE value IS ?", &.{Value.initNull()});
+    defer result.deinit();
+
+    const maybe_row = try result.next();
+    try std.testing.expect(maybe_row != null);
+    const row = maybe_row.?;
+    
+    const id = try row.get(0);
+    try std.testing.expectEqual(@as(i64, 2), id.asInt().?);
+}
+
+test "sqlite driver: BUG FIX #2 - Parameterized query with boolean parameter" {
+    const uri = Uri.parse("sqlite://:memory:") catch unreachable;
+    var conn = try open(std.testing.allocator, uri);
+    defer conn.close();
+
+    _ = try conn.exec("CREATE TABLE bool_param_test (id INTEGER, active INTEGER)", &.{});
+    _ = try conn.exec("INSERT INTO bool_param_test VALUES (1, 1)", &.{});
+    _ = try conn.exec("INSERT INTO bool_param_test VALUES (2, 0)", &.{});
+    _ = try conn.exec("INSERT INTO bool_param_test VALUES (3, 1)", &.{});
+
+    var result = try conn.query("SELECT id FROM bool_param_test WHERE active = ? ORDER BY id", &.{Value.initBool(true)});
+    defer result.deinit();
+
+    const maybe_row1 = try result.next();
+    try std.testing.expect(maybe_row1 != null);
+    const row1 = maybe_row1.?;
+    const id1 = try row1.get(0);
+    try std.testing.expectEqual(@as(i64, 1), id1.asInt().?);
+
+    const maybe_row2 = try result.next();
+    try std.testing.expect(maybe_row2 != null);
+    const row2 = maybe_row2.?;
+    const id2 = try row2.get(0);
+    try std.testing.expectEqual(@as(i64, 3), id2.asInt().?);
+
+    const maybe_row3 = try result.next();
+    try std.testing.expect(maybe_row3 == null);
+}
+
+test "sqlite driver: BUG FIX #2 - SQL injection protection with parameters" {
+    const uri = Uri.parse("sqlite://:memory:") catch unreachable;
+    var conn = try open(std.testing.allocator, uri);
+    defer conn.close();
+
+    _ = try conn.exec("CREATE TABLE injection_test (id INTEGER, name TEXT)", &.{});
+    _ = try conn.exec("INSERT INTO injection_test VALUES (1, 'Alice')", &.{});
+
+    // Attempt SQL injection through parameter (should be safely escaped)
+    const malicious_input = "Alice' OR '1'='1";
+    var result = try conn.query("SELECT id FROM injection_test WHERE name = ?", &.{Value.initText(malicious_input)});
+    defer result.deinit();
+
+    // Should return no rows (parameter is treated as literal string)
+    const maybe_row = try result.next();
+    try std.testing.expect(maybe_row == null);
 }
