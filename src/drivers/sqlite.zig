@@ -159,6 +159,40 @@ fn sqliteResultDeinit(ctx: *anyopaque) void {
     result_ctx.deinit();
 }
 
+/// Helper function to bind parameters to a prepared statement
+fn bindParameters(stmt: zqlite.Stmt, params: []const Value) Error!void {
+    for (params, 0..) |param, i| {
+        switch (param) {
+            .null => {
+                stmt.bindValue(@as(?i64, null), i) catch return Error.BindError;
+            },
+            .boolean => |b| {
+                const val: i64 = if (b) 1 else 0;
+                stmt.bindValue(val, i) catch return Error.BindError;
+            },
+            .int => |val| {
+                stmt.bindValue(val, i) catch return Error.BindError;
+            },
+            .uint => |val| {
+                if (val <= std.math.maxInt(i64)) {
+                    stmt.bindValue(@as(i64, @intCast(val)), i) catch return Error.BindError;
+                } else {
+                    return Error.BindError;
+                }
+            },
+            .float => |val| {
+                stmt.bindValue(val, i) catch return Error.BindError;
+            },
+            .text => |val| {
+                stmt.bindValue(val, i) catch return Error.BindError;
+            },
+            .blob => |val| {
+                stmt.bindValue(val, i) catch return Error.BindError;
+            },
+        }
+    }
+}
+
 /// VTable for SQLite connections
 pub const sqliteConnectionVTable = ConnectionVTable{
     .exec = sqliteExec,
@@ -182,39 +216,8 @@ fn sqliteExec(ctx: *anyopaque, _: std.mem.Allocator, sql: []const u8, params: []
         const stmt = sqlite_ctx.conn.prepare(sql) catch return Error.PrepareFailed;
         defer stmt.deinit();
 
-        // Bind parameters - zqlite.Stmt.bind expects a tuple
-        // We need to convert our Value array to zqlite-compatible values
-        // For now, we'll bind them one by one using bindValue
-        for (params, 0..) |param, i| {
-            switch (param) {
-                .null => {
-                    stmt.bindValue(@as(?i64, null), i) catch return Error.BindError;
-                },
-                .boolean => |b| {
-                    const val: i64 = if (b) 1 else 0;
-                    stmt.bindValue(val, i) catch return Error.BindError;
-                },
-                .int => |val| {
-                    stmt.bindValue(val, i) catch return Error.BindError;
-                },
-                .uint => |val| {
-                    if (val <= std.math.maxInt(i64)) {
-                        stmt.bindValue(@as(i64, @intCast(val)), i) catch return Error.BindError;
-                    } else {
-                        return Error.BindError;
-                    }
-                },
-                .float => |val| {
-                    stmt.bindValue(val, i) catch return Error.BindError;
-                },
-                .text => |val| {
-                    stmt.bindValue(val, i) catch return Error.BindError;
-                },
-                .blob => |val| {
-                    stmt.bindValue(val, i) catch return Error.BindError;
-                },
-            }
-        }
+        // Bind parameters using helper function
+        try bindParameters(stmt, params);
 
         stmt.stepToCompletion() catch return Error.ExecutionFailed;
     } else {
@@ -244,61 +247,16 @@ fn sqliteQuery(ctx: *anyopaque, allocator: std.mem.Allocator, sql: []const u8, p
         const stmt = sqlite_ctx.conn.prepare(sql_z) catch return Error.PrepareFailed;
         // Don't defer deinit here - we need to keep it alive for the rows iterator
 
-        // Bind parameters
-        for (params, 0..) |param, i| {
-            switch (param) {
-                .null => {
-                    stmt.bindValue(@as(?i64, null), i) catch {
-                        stmt.deinit();
-                        return Error.BindError;
-                    };
-                },
-                .boolean => |b| {
-                    const val: i64 = if (b) 1 else 0;
-                    stmt.bindValue(val, i) catch {
-                        stmt.deinit();
-                        return Error.BindError;
-                    };
-                },
-                .int => |val| {
-                    stmt.bindValue(val, i) catch {
-                        stmt.deinit();
-                        return Error.BindError;
-                    };
-                },
-                .uint => |val| {
-                    if (val <= std.math.maxInt(i64)) {
-                        stmt.bindValue(@as(i64, @intCast(val)), i) catch {
-                            stmt.deinit();
-                            return Error.BindError;
-                        };
-                    } else {
-                        stmt.deinit();
-                        return Error.BindError;
-                    }
-                },
-                .float => |val| {
-                    stmt.bindValue(val, i) catch {
-                        stmt.deinit();
-                        return Error.BindError;
-                    };
-                },
-                .text => |val| {
-                    stmt.bindValue(val, i) catch {
-                        stmt.deinit();
-                        return Error.BindError;
-                    };
-                },
-                .blob => |val| {
-                    stmt.bindValue(val, i) catch {
-                        stmt.deinit();
-                        return Error.BindError;
-                    };
-                },
-            }
-        }
+        // Bind parameters using helper function
+        bindParameters(stmt, params) catch {
+            stmt.deinit();
+            return Error.BindError;
+        };
 
-        // Create rows iterator from prepared statement manually
+        // Create rows iterator from prepared statement manually.
+        // Note: We construct the Rows struct directly because zqlite doesn't provide
+        // an API to create a Rows iterator from a prepared statement with bound params.
+        // The Rows struct owns the statement and will clean it up on deinit().
         const rows = zqlite.Rows{ .stmt = stmt, .err = null };
 
         const result_ctx = SqliteResultContext.init(allocator) catch {
