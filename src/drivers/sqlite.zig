@@ -132,7 +132,7 @@ fn sqliteResultGetValue(ctx: *anyopaque, index: usize) Error!Value {
         return Error.NoMoreRows;
     }
     const row = result_ctx.current_row.?;
-    
+
     // Check the column type and return appropriate value
     const col_type = row.columnType(index);
     return switch (col_type) {
@@ -243,7 +243,7 @@ fn sqliteQuery(ctx: *anyopaque, allocator: std.mem.Allocator, sql: []const u8, p
     if (params.len > 0) {
         const stmt = sqlite_ctx.conn.prepare(sql_z) catch return Error.PrepareFailed;
         // Don't defer deinit here - we need to keep it alive for the rows iterator
-        
+
         // Bind parameters
         for (params, 0..) |param, i| {
             switch (param) {
@@ -297,16 +297,16 @@ fn sqliteQuery(ctx: *anyopaque, allocator: std.mem.Allocator, sql: []const u8, p
                 },
             }
         }
-        
+
         // Create rows iterator from prepared statement manually
         const rows = zqlite.Rows{ .stmt = stmt, .err = null };
-        
+
         const result_ctx = SqliteResultContext.init(allocator) catch {
             stmt.deinit();
             return Error.OutOfMemory;
         };
         result_ctx.rows = rows;
-        
+
         return Result.init(@ptrCast(result_ctx), &sqliteResultVTable);
     } else {
         // No params - use direct query
@@ -1187,7 +1187,7 @@ test "sqlite driver: BUG FIX #1 - COUNT(*) returns integer not null" {
     const maybe_row = try result.next();
     try std.testing.expect(maybe_row != null);
     const row = maybe_row.?;
-    
+
     // This should return an integer value, not null
     const count_val = try row.get(0);
     try std.testing.expect(!count_val.isNull());
@@ -1210,7 +1210,7 @@ test "sqlite driver: BUG FIX #1 - INTEGER column retrieval" {
     const maybe_row1 = try result.next();
     try std.testing.expect(maybe_row1 != null);
     const row1 = maybe_row1.?;
-    
+
     const id1 = try row1.get(0);
     const val1 = try row1.get(1);
     try std.testing.expectEqual(@as(i64, 1), id1.asInt().?);
@@ -1220,7 +1220,7 @@ test "sqlite driver: BUG FIX #1 - INTEGER column retrieval" {
     const maybe_row2 = try result.next();
     try std.testing.expect(maybe_row2 != null);
     const row2 = maybe_row2.?;
-    
+
     const id2 = try row2.get(0);
     const val2 = try row2.get(1);
     try std.testing.expectEqual(@as(i64, 2), id2.asInt().?);
@@ -1243,7 +1243,7 @@ test "sqlite driver: BUG FIX #1 - FLOAT column retrieval" {
     const maybe_row1 = try result.next();
     try std.testing.expect(maybe_row1 != null);
     const row1 = maybe_row1.?;
-    
+
     const val1 = try row1.get(0);
     try std.testing.expectApproxEqAbs(@as(f64, 3.14159), val1.asFloat().?, 0.00001);
 
@@ -1251,7 +1251,7 @@ test "sqlite driver: BUG FIX #1 - FLOAT column retrieval" {
     const maybe_row2 = try result.next();
     try std.testing.expect(maybe_row2 != null);
     const row2 = maybe_row2.?;
-    
+
     const val2 = try row2.get(0);
     try std.testing.expectApproxEqAbs(@as(f64, -2.71828), val2.asFloat().?, 0.00001);
 }
@@ -1270,7 +1270,7 @@ test "sqlite driver: BUG FIX #1 - BLOB column retrieval" {
     const maybe_row = try result.next();
     try std.testing.expect(maybe_row != null);
     const row = maybe_row.?;
-    
+
     const blob_val = try row.get(0);
     const blob = blob_val.asBlob().?;
     try std.testing.expectEqual(@as(usize, 5), blob.len);
@@ -1291,7 +1291,7 @@ test "sqlite driver: BUG FIX #1 - Mixed column types in single query" {
         \\  nullable TEXT
         \\)
     , &.{});
-    
+
     _ = try conn.exec("INSERT INTO mixed_test VALUES (1, 'Alice', 95.5, X'ABCD', NULL)", &.{});
 
     var result = try conn.query("SELECT id, name, score, data, nullable FROM mixed_test", &.{});
@@ -1300,13 +1300,13 @@ test "sqlite driver: BUG FIX #1 - Mixed column types in single query" {
     const maybe_row = try result.next();
     try std.testing.expect(maybe_row != null);
     const row = maybe_row.?;
-    
+
     const id = try row.get(0);
     const name = try row.get(1);
     const score = try row.get(2);
     const data = try row.get(3);
     const nullable = try row.get(4);
-    
+
     try std.testing.expectEqual(@as(i64, 1), id.asInt().?);
     try std.testing.expectEqualStrings("Alice", name.asText().?);
     try std.testing.expectApproxEqAbs(@as(f64, 95.5), score.asFloat().?, 0.01);
@@ -1331,10 +1331,10 @@ test "sqlite driver: BUG FIX #2 - Parameterized SELECT with WHERE clause" {
     const maybe_row = try result.next();
     try std.testing.expect(maybe_row != null);
     const row = maybe_row.?;
-    
+
     const name = try row.get(0);
     try std.testing.expectEqualStrings("Bob", name.asText().?);
-    
+
     // Should only have one matching row
     const maybe_row2 = try result.next();
     try std.testing.expect(maybe_row2 == null);
@@ -1352,10 +1352,7 @@ test "sqlite driver: BUG FIX #2 - Parameterized query with multiple parameters" 
     _ = try conn.exec("INSERT INTO range_test VALUES (20)", &.{});
 
     // Query with two parameters
-    var result = try conn.query(
-        "SELECT value FROM range_test WHERE value >= ? AND value <= ? ORDER BY value",
-        &.{Value.initInt(8), Value.initInt(18)}
-    );
+    var result = try conn.query("SELECT value FROM range_test WHERE value >= ? AND value <= ? ORDER BY value", &.{ Value.initInt(8), Value.initInt(18) });
     defer result.deinit();
 
     // Should match 10 and 15
@@ -1390,7 +1387,7 @@ test "sqlite driver: BUG FIX #2 - Parameterized query with TEXT parameter" {
     const maybe_row = try result.next();
     try std.testing.expect(maybe_row != null);
     const row = maybe_row.?;
-    
+
     const id = try row.get(0);
     try std.testing.expectEqual(@as(i64, 1), id.asInt().?);
 }
@@ -1411,10 +1408,10 @@ test "sqlite driver: BUG FIX #2 - Parameterized query with FLOAT parameter" {
     const maybe_row = try result.next();
     try std.testing.expect(maybe_row != null);
     const row = maybe_row.?;
-    
+
     const id = try row.get(0);
     try std.testing.expectEqual(@as(i64, 2), id.asInt().?);
-    
+
     // Only one row should match
     const maybe_row2 = try result.next();
     try std.testing.expect(maybe_row2 == null);
@@ -1435,7 +1432,7 @@ test "sqlite driver: BUG FIX #2 - Parameterized query with NULL parameter" {
     const maybe_row = try result.next();
     try std.testing.expect(maybe_row != null);
     const row = maybe_row.?;
-    
+
     const id = try row.get(0);
     try std.testing.expectEqual(@as(i64, 2), id.asInt().?);
 }
