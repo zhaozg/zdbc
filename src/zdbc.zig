@@ -126,6 +126,7 @@ test "open mock connection" {
 }
 
 test "open with invalid URI" {
-    const result = open(std.testing.allocator, "invalid://uri");
+    const io = std.testing.io;
+    const result = open(io, std.testing.allocator, "invalid://uri");
     try std.testing.expectError(Error.InvalidUri, result);
 }

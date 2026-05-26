@@ -457,8 +457,9 @@ pub fn open(io: std.Io, allocator: std.mem.Allocator, uri: Uri) Error!Connection
 // ============================================================================
 
 test "sqlite driver: open in-memory database" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     // Verify connection is valid by executing a simple query
@@ -466,8 +467,9 @@ test "sqlite driver: open in-memory database" {
 }
 
 test "sqlite driver: create table and insert" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     // Create table
@@ -481,8 +483,9 @@ test "sqlite driver: create table and insert" {
 }
 
 test "sqlite driver: affected rows count" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     // Create table and insert multiple rows
@@ -498,8 +501,9 @@ test "sqlite driver: affected rows count" {
 }
 
 test "sqlite driver: last insert id tracking" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT)", &.{});
@@ -515,8 +519,9 @@ test "sqlite driver: last insert id tracking" {
 }
 
 test "sqlite driver: transaction commit" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE txn_test (id INTEGER PRIMARY KEY, value TEXT)", &.{});
@@ -539,8 +544,9 @@ test "sqlite driver: transaction commit" {
 }
 
 test "sqlite driver: transaction rollback" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE rollback_test (id INTEGER PRIMARY KEY, value TEXT)", &.{});
@@ -566,8 +572,9 @@ test "sqlite driver: transaction rollback" {
 }
 
 test "sqlite driver: query returns rows" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE query_test (id INTEGER, name TEXT)", &.{});
@@ -591,8 +598,9 @@ test "sqlite driver: query returns rows" {
 }
 
 test "sqlite driver: empty result set" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE empty_test (id INTEGER)", &.{});
@@ -606,8 +614,9 @@ test "sqlite driver: empty result set" {
 }
 
 test "sqlite driver: null values" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE null_test (id INTEGER, nullable_col TEXT)", &.{});
@@ -622,8 +631,9 @@ test "sqlite driver: null values" {
 }
 
 test "sqlite driver: ping always succeeds" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     // Ping should always succeed for SQLite (file-based)
@@ -631,8 +641,9 @@ test "sqlite driver: ping always succeeds" {
 }
 
 test "sqlite driver: multiple tables" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     // Create multiple tables
@@ -650,8 +661,9 @@ test "sqlite driver: multiple tables" {
 }
 
 test "sqlite driver: delete operation" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE delete_test (id INTEGER)", &.{});
@@ -664,8 +676,9 @@ test "sqlite driver: delete operation" {
 }
 
 test "sqlite driver: update operation" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE update_test (id INTEGER, status TEXT)", &.{});
@@ -677,8 +690,9 @@ test "sqlite driver: update operation" {
 }
 
 test "sqlite driver: error on invalid SQL syntax" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     // Invalid SQL should return error
@@ -687,8 +701,9 @@ test "sqlite driver: error on invalid SQL syntax" {
 }
 
 test "sqlite driver: error on non-existent table" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     const result = conn.exec("SELECT * FROM nonexistent_table", &.{});
@@ -696,8 +711,9 @@ test "sqlite driver: error on non-existent table" {
 }
 
 test "sqlite driver: error on query invalid SQL" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     const result = conn.query("INVALID QUERY SYNTAX", &.{});
@@ -705,8 +721,9 @@ test "sqlite driver: error on query invalid SQL" {
 }
 
 test "sqlite driver: large data insert" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE large_test (id INTEGER PRIMARY KEY, data TEXT)", &.{});
@@ -721,8 +738,9 @@ test "sqlite driver: large data insert" {
 }
 
 test "sqlite driver: various data types" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec(
@@ -745,26 +763,28 @@ test "sqlite driver: various data types" {
 }
 
 test "sqlite driver: close and reopen" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
 
     // First connection
     {
-        var conn = try open(std.testing.allocator, uri);
+        var conn = try open(io, std.testing.allocator, uri);
         _ = try conn.exec("SELECT 1", &.{});
         conn.close();
     }
 
     // Second connection (new in-memory db)
     {
-        var conn = try open(std.testing.allocator, uri);
+        var conn = try open(io, std.testing.allocator, uri);
         defer conn.close();
         _ = try conn.exec("SELECT 1", &.{});
     }
 }
 
 test "sqlite driver: nested transactions (savepoint not supported)" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE nested_test (id INTEGER)", &.{});
@@ -783,8 +803,9 @@ test "sqlite driver: nested transactions (savepoint not supported)" {
 }
 
 test "sqlite driver: special characters in data" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE special_test (data TEXT)", &.{});
@@ -802,8 +823,9 @@ test "sqlite driver: special characters in data" {
 }
 
 test "sqlite driver: unicode data" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE unicode_test (data TEXT)", &.{});
@@ -820,8 +842,9 @@ test "sqlite driver: unicode data" {
 }
 
 test "sqlite driver: boundary - empty string" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE empty_str_test (data TEXT)", &.{});
@@ -836,8 +859,9 @@ test "sqlite driver: boundary - empty string" {
 }
 
 test "sqlite driver: boundary - very long string" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE long_str_test (data TEXT)", &.{});
@@ -857,8 +881,9 @@ test "sqlite driver: boundary - very long string" {
 }
 
 test "sqlite driver: prepare statement works" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     // Create a test table
@@ -881,8 +906,9 @@ test "sqlite driver: prepare statement works" {
 }
 
 test "sqlite driver: drop table" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE drop_test (id INTEGER)", &.{});
@@ -895,8 +921,9 @@ test "sqlite driver: drop table" {
 }
 
 test "sqlite driver: alter table" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE alter_test (id INTEGER)", &.{});
@@ -911,8 +938,9 @@ test "sqlite driver: alter table" {
 }
 
 test "sqlite driver: constraint violation" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE constraint_test (id INTEGER PRIMARY KEY, name TEXT UNIQUE)", &.{});
@@ -928,8 +956,9 @@ test "sqlite driver: constraint violation" {
 }
 
 test "sqlite driver: foreign key (if enabled)" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("PRAGMA foreign_keys = ON", &.{});
@@ -944,8 +973,9 @@ test "sqlite driver: foreign key (if enabled)" {
 }
 
 test "sqlite driver: index creation" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE index_test (id INTEGER, name TEXT)", &.{});
@@ -960,8 +990,9 @@ test "sqlite driver: index creation" {
 }
 
 test "sqlite driver: aggregate functions" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE agg_test (value INTEGER)", &.{});
@@ -977,8 +1008,9 @@ test "sqlite driver: aggregate functions" {
 }
 
 test "sqlite driver: group by and having" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE group_test (category TEXT, amount INTEGER)", &.{});
@@ -995,8 +1027,9 @@ test "sqlite driver: group by and having" {
 }
 
 test "sqlite driver: subquery" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE subq_test (id INTEGER, value INTEGER)", &.{});
@@ -1013,8 +1046,9 @@ test "sqlite driver: subquery" {
 }
 
 test "sqlite driver: join tables" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE orders (id INTEGER, customer_id INTEGER)", &.{});
@@ -1030,8 +1064,9 @@ test "sqlite driver: join tables" {
 }
 
 test "sqlite driver: case expression" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE case_test (score INTEGER)", &.{});
@@ -1045,8 +1080,9 @@ test "sqlite driver: case expression" {
 }
 
 test "sqlite driver: coalesce and nullif" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE coalesce_test (a TEXT, b TEXT)", &.{});
@@ -1060,8 +1096,9 @@ test "sqlite driver: coalesce and nullif" {
 }
 
 test "sqlite driver: like pattern matching" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE like_test (name TEXT)", &.{});
@@ -1081,8 +1118,9 @@ test "sqlite driver: like pattern matching" {
 }
 
 test "sqlite driver: order by and limit" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE order_test (val INTEGER)", &.{});
@@ -1105,8 +1143,9 @@ test "sqlite driver: order by and limit" {
 }
 
 test "sqlite driver: distinct values" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE distinct_test (val TEXT)", &.{});
@@ -1131,8 +1170,9 @@ test "sqlite driver: distinct values" {
 // ============================================================================
 
 test "sqlite driver: BUG FIX #1 - COUNT(*) returns integer not null" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE count_test (id INTEGER)", &.{});
@@ -1154,8 +1194,9 @@ test "sqlite driver: BUG FIX #1 - COUNT(*) returns integer not null" {
 }
 
 test "sqlite driver: BUG FIX #1 - INTEGER column retrieval" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE int_test (id INTEGER, value INTEGER)", &.{});
@@ -1187,8 +1228,9 @@ test "sqlite driver: BUG FIX #1 - INTEGER column retrieval" {
 }
 
 test "sqlite driver: BUG FIX #1 - FLOAT column retrieval" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE float_test (id INTEGER, value REAL)", &.{});
@@ -1216,8 +1258,9 @@ test "sqlite driver: BUG FIX #1 - FLOAT column retrieval" {
 }
 
 test "sqlite driver: BUG FIX #1 - BLOB column retrieval" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE blob_test (id INTEGER, data BLOB)", &.{});
@@ -1237,8 +1280,9 @@ test "sqlite driver: BUG FIX #1 - BLOB column retrieval" {
 }
 
 test "sqlite driver: BUG FIX #1 - Mixed column types in single query" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec(
@@ -1274,8 +1318,9 @@ test "sqlite driver: BUG FIX #1 - Mixed column types in single query" {
 }
 
 test "sqlite driver: BUG FIX #2 - Parameterized SELECT with WHERE clause" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE param_test (id INTEGER, name TEXT)", &.{});
@@ -1300,8 +1345,9 @@ test "sqlite driver: BUG FIX #2 - Parameterized SELECT with WHERE clause" {
 }
 
 test "sqlite driver: BUG FIX #2 - Parameterized query with multiple parameters" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE range_test (value INTEGER)", &.{});
@@ -1332,8 +1378,9 @@ test "sqlite driver: BUG FIX #2 - Parameterized query with multiple parameters" 
 }
 
 test "sqlite driver: BUG FIX #2 - Parameterized query with TEXT parameter" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE text_param_test (id INTEGER, name TEXT)", &.{});
@@ -1352,8 +1399,9 @@ test "sqlite driver: BUG FIX #2 - Parameterized query with TEXT parameter" {
 }
 
 test "sqlite driver: BUG FIX #2 - Parameterized query with FLOAT parameter" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE float_param_test (id INTEGER, score REAL)", &.{});
@@ -1377,8 +1425,9 @@ test "sqlite driver: BUG FIX #2 - Parameterized query with FLOAT parameter" {
 }
 
 test "sqlite driver: BUG FIX #2 - Parameterized query with NULL parameter" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE null_param_test (id INTEGER, value TEXT)", &.{});
@@ -1405,8 +1454,9 @@ test "sqlite driver: BUG FIX #2 - Parameterized query with NULL parameter" {
 }
 
 test "sqlite driver: BUG FIX #2 - Parameterized query with boolean parameter" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE bool_param_test (id INTEGER, active INTEGER)", &.{});
@@ -1434,8 +1484,9 @@ test "sqlite driver: BUG FIX #2 - Parameterized query with boolean parameter" {
 }
 
 test "sqlite driver: BUG FIX #2 - SQL injection protection with parameters" {
+    const io = std.testing.io;
     const uri = Uri.parse("sqlite://:memory:") catch unreachable;
-    var conn = try open(std.testing.allocator, uri);
+    var conn = try open(io, std.testing.allocator, uri);
     defer conn.close();
 
     _ = try conn.exec("CREATE TABLE injection_test (id INTEGER, name TEXT)", &.{});

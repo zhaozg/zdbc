@@ -247,6 +247,8 @@ pub fn open(io: std.Io, allocator: std.mem.Allocator, uri: Uri) Error!Connection
 }
 
 test "postgresql driver interface" {
+    const io = std.testing.io;
+    _ = io;
     // This test only verifies the interface compiles correctly
     // Actual PostgreSQL tests require a running database
     const uri = Uri.parse("postgresql://user:pass@localhost:5432/testdb") catch unreachable;
@@ -264,19 +266,19 @@ test "postgresql driver interface" {
 // ============================================================================
 
 fn getPgTestUri(allocator: std.mem.Allocator) ?[]const u8 {
-    const password = std.process.getEnvVarOwned(allocator, "ZDBC_PG_PASSWORD") catch return null;
+    const password = if (std.c.getenv("ZDBC_PG_PASSWORD")) |v| allocator.dupe(u8, std.mem.span(v)) catch return null else return null;
     defer allocator.free(password);
 
-    const host = std.process.getEnvVarOwned(allocator, "ZDBC_PG_HOST") catch allocator.dupe(u8, "localhost") catch return null;
+    const host = if (std.c.getenv("ZDBC_PG_HOST")) |v| allocator.dupe(u8, std.mem.span(v)) catch return null else allocator.dupe(u8, "localhost") catch return null;
     defer allocator.free(host);
 
-    const port = std.process.getEnvVarOwned(allocator, "ZDBC_PG_PORT") catch allocator.dupe(u8, "5432") catch return null;
+    const port = if (std.c.getenv("ZDBC_PG_PORT")) |v| allocator.dupe(u8, std.mem.span(v)) catch return null else allocator.dupe(u8, "5432") catch return null;
     defer allocator.free(port);
 
-    const user = std.process.getEnvVarOwned(allocator, "ZDBC_PG_USER") catch allocator.dupe(u8, "postgres") catch return null;
+    const user = if (std.c.getenv("ZDBC_PG_USER")) |v| allocator.dupe(u8, std.mem.span(v)) catch return null else allocator.dupe(u8, "postgres") catch return null;
     defer allocator.free(user);
 
-    const database = std.process.getEnvVarOwned(allocator, "ZDBC_PG_DATABASE") catch allocator.dupe(u8, "zdbc_test") catch return null;
+    const database = if (std.c.getenv("ZDBC_PG_DATABASE")) |v| allocator.dupe(u8, std.mem.span(v)) catch return null else allocator.dupe(u8, "zdbc_test") catch return null;
     defer allocator.free(database);
 
     return std.fmt.allocPrint(allocator, "postgresql://{s}:{s}@{s}:{s}/{s}", .{
@@ -289,6 +291,7 @@ fn getPgTestUri(allocator: std.mem.Allocator) ?[]const u8 {
 }
 
 test "postgresql: connection and ping" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getPgTestUri(allocator) orelse {
         // Skip test if PostgreSQL is not configured
@@ -297,7 +300,7 @@ test "postgresql: connection and ping" {
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch |err| {
+    var conn = open(io, allocator, uri) catch |err| {
         std.debug.print("PostgreSQL connection failed (expected if no server): {}\n", .{err});
         return;
     };
@@ -308,12 +311,13 @@ test "postgresql: connection and ping" {
 }
 
 test "postgresql: create table and insert" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getPgTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -330,12 +334,13 @@ test "postgresql: create table and insert" {
 }
 
 test "postgresql: query returns rows" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getPgTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -367,12 +372,13 @@ test "postgresql: query returns rows" {
 }
 
 test "postgresql: transaction commit" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getPgTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -407,12 +413,13 @@ test "postgresql: transaction commit" {
 }
 
 test "postgresql: transaction rollback" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getPgTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -450,12 +457,13 @@ test "postgresql: transaction rollback" {
 }
 
 test "postgresql: multiple data types" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getPgTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -494,12 +502,13 @@ test "postgresql: multiple data types" {
 }
 
 test "postgresql: unicode data" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getPgTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -528,12 +537,13 @@ test "postgresql: unicode data" {
 }
 
 test "postgresql: null values" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getPgTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -559,12 +569,13 @@ test "postgresql: null values" {
 }
 
 test "postgresql: aggregate functions" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getPgTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -597,12 +608,13 @@ test "postgresql: aggregate functions" {
 }
 
 test "postgresql: join tables" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getPgTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop tables if exist

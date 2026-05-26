@@ -254,6 +254,8 @@ pub fn open(io: std.Io, allocator: std.mem.Allocator, uri: Uri) Error!Connection
 }
 
 test "mysql driver interface" {
+    const io = std.testing.io;
+    _ = io;
     // This test only verifies the interface compiles correctly
     // Actual MySQL tests require a running database
     const uri = Uri.parse("mysql://user:pass@localhost:3306/testdb") catch unreachable;
@@ -271,19 +273,19 @@ test "mysql driver interface" {
 // ============================================================================
 
 fn getMysqlTestUri(allocator: std.mem.Allocator) ?[]const u8 {
-    const password = std.process.getEnvVarOwned(allocator, "ZDBC_MYSQL_PASSWORD") catch return null;
+    const password = if (std.c.getenv("ZDBC_MYSQL_PASSWORD")) |v| allocator.dupe(u8, std.mem.span(v)) catch return null else return null;
     defer allocator.free(password);
 
-    const host = std.process.getEnvVarOwned(allocator, "ZDBC_MYSQL_HOST") catch allocator.dupe(u8, "127.0.0.1") catch return null;
+    const host = if (std.c.getenv("ZDBC_MYSQL_HOST")) |v| allocator.dupe(u8, std.mem.span(v)) catch return null else allocator.dupe(u8, "127.0.0.1") catch return null;
     defer allocator.free(host);
 
-    const port = std.process.getEnvVarOwned(allocator, "ZDBC_MYSQL_PORT") catch allocator.dupe(u8, "3306") catch return null;
+    const port = if (std.c.getenv("ZDBC_MYSQL_PORT")) |v| allocator.dupe(u8, std.mem.span(v)) catch return null else allocator.dupe(u8, "3306") catch return null;
     defer allocator.free(port);
 
-    const user = std.process.getEnvVarOwned(allocator, "ZDBC_MYSQL_USER") catch allocator.dupe(u8, "root") catch return null;
+    const user = if (std.c.getenv("ZDBC_MYSQL_USER")) |v| allocator.dupe(u8, std.mem.span(v)) catch return null else allocator.dupe(u8, "root") catch return null;
     defer allocator.free(user);
 
-    const database = std.process.getEnvVarOwned(allocator, "ZDBC_MYSQL_DATABASE") catch allocator.dupe(u8, "zdbc_test") catch return null;
+    const database = if (std.c.getenv("ZDBC_MYSQL_DATABASE")) |v| allocator.dupe(u8, std.mem.span(v)) catch return null else allocator.dupe(u8, "zdbc_test") catch return null;
     defer allocator.free(database);
 
     return std.fmt.allocPrint(allocator, "mysql://{s}:{s}@{s}:{s}/{s}", .{
@@ -296,6 +298,7 @@ fn getMysqlTestUri(allocator: std.mem.Allocator) ?[]const u8 {
 }
 
 test "mysql: connection and ping" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getMysqlTestUri(allocator) orelse {
         // Skip test if MySQL is not configured
@@ -304,7 +307,7 @@ test "mysql: connection and ping" {
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch |err| {
+    var conn = open(io, allocator, uri) catch |err| {
         std.debug.print("MySQL connection failed (expected if no server): {}\n", .{err});
         return;
     };
@@ -315,12 +318,13 @@ test "mysql: connection and ping" {
 }
 
 test "mysql: create table and insert" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getMysqlTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -343,12 +347,13 @@ test "mysql: create table and insert" {
 }
 
 test "mysql: affected rows count" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getMysqlTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -368,12 +373,13 @@ test "mysql: affected rows count" {
 }
 
 test "mysql: transaction commit" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getMysqlTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -401,12 +407,13 @@ test "mysql: transaction commit" {
 }
 
 test "mysql: transaction rollback" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getMysqlTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -437,12 +444,13 @@ test "mysql: transaction rollback" {
 }
 
 test "mysql: multiple data types" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getMysqlTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -472,12 +480,13 @@ test "mysql: multiple data types" {
 }
 
 test "mysql: unicode data" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getMysqlTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -496,12 +505,13 @@ test "mysql: unicode data" {
 }
 
 test "mysql: null values" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getMysqlTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -519,12 +529,13 @@ test "mysql: null values" {
 }
 
 test "mysql: aggregate functions" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getMysqlTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -545,12 +556,13 @@ test "mysql: aggregate functions" {
 }
 
 test "mysql: join tables" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getMysqlTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop tables if exist
@@ -573,12 +585,13 @@ test "mysql: join tables" {
 }
 
 test "mysql: delete operation" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getMysqlTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
@@ -597,12 +610,13 @@ test "mysql: delete operation" {
 }
 
 test "mysql: update operation" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const uri_str = getMysqlTestUri(allocator) orelse return;
     defer allocator.free(uri_str);
 
     const uri = Uri.parse(uri_str) catch return;
-    var conn = open(allocator, uri) catch return;
+    var conn = open(io, allocator, uri) catch return;
     defer conn.close();
 
     // Drop table if exists
