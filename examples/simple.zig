@@ -5,10 +5,8 @@
 const std = @import("std");
 const zdbc = @import("zdbc");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
     // Example 1: Using mock driver for testing
     std.debug.print("=== ZDBC Example ===\n\n", .{});

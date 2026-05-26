@@ -30,7 +30,7 @@ ZDBC - Zig Database Connector
 
 ## requirements
 
-- Must build and test pass with zig 0.15.x, download URL in https://ziglang.org/download/index.json
+- Must build and test pass with zig 0.16.x, download URL in https://ziglang.org/download/index.json
 - All CI must pass.
 - Update benchmark results with ReleaseFast mode in README.md if applicable.
 - Push PR after `zig fmt src`

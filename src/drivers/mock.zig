@@ -255,6 +255,7 @@ pub fn open(allocator: std.mem.Allocator, uri: Uri) Error!Connection {
         .ctx = @ptrCast(ctx),
         .vtable = &mockConnectionVTable,
         .allocator = allocator,
+        .io = undefined,
         .uri = uri,
     };
 }

@@ -2,19 +2,19 @@
     .name = .zdbc,
     .version = "0.1.0",
     .fingerprint = 0xe968c5dfbe31e2fe,
-    .minimum_zig_version = "0.15.0",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .zqlite = .{
-            .url = "https://github.com/karlseguin/zqlite.zig/archive/b44ed5cdc64859b08446c246f307e65ebe2b2d9c.tar.gz",
-            .hash = "1220e1d8b75b0eb1bfd874f674101cb0047c26283fefe74e25dd019fdcd5366f205a",
+            .url = "git+https://github.com/karlseguin/zqlite.zig#master",
+            .hash = "zqlite-0.0.1-RWLaY64xnAAxsD2YNT8QqPMJUuaFv2GOzFRR4aGypJv3",
         },
         .pg = .{
             .url = "git+https://github.com/karlseguin/pg.zig#master",
-            .hash = "pg-0.0.0-Wp_7gag6BgD_QAZrPhNNEGpnUZR_LEkKT40Ura3p-4yX",
+            .hash = "pg-0.0.0-Wp_7geGMBgA6dG6czFRdDq6RB7ti-DDVBx_ZV0B957Sz",
         },
         .myzql = .{
-            .url = "git+https://github.com/speed2exe/myzql#main",
-            .hash = "myzql-0.0.0-XU5aADP4AgD6TcFfz8DHEPl0FTn_R8qAgTsimePitObZ",
+            .url = "https://github.com/speed2exe/myzql/archive/refs/tags/0.16.0.tar.gz",
+            .hash = "myzql-0.0.0-XU5aAGYcAwD5F0BXNRyhhZlE2BOcozErUATya4Q_L9-q",
         },
     },
     .paths = .{

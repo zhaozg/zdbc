@@ -20,6 +20,7 @@ const Uri = @import("../uri.zig").Uri;
 /// MySQL connection context
 pub const MysqlContext = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     conn: myzql.conn.Conn,
     last_error: ?[]const u8 = null,
     affected_rows: usize = 0,
@@ -28,7 +29,7 @@ pub const MysqlContext = struct {
     username_z: [:0]const u8,
     database_z: [:0]const u8,
 
-    pub fn init(allocator: std.mem.Allocator, uri: Uri) !*MysqlContext {
+    pub fn init(io: std.Io, allocator: std.mem.Allocator, uri: Uri) !*MysqlContext {
         const host = uri.host orelse "127.0.0.1";
         const port = uri.port orelse 3306;
 
@@ -50,21 +51,23 @@ pub const MysqlContext = struct {
         const database_z = allocator.dupeZ(u8, if (uri.database.len > 0) uri.database else "") catch return error.OutOfMemory;
         errdefer allocator.free(database_z);
 
+        const address = std.Io.net.IpAddress{ .ip4 = .{ .bytes = addr_bytes, .port = port } };
         const config = myzql.config.Config{
             .username = username_z,
             .password = uri.password orelse "",
             .database = database_z,
-            .address = std.net.Address.initIp4(addr_bytes, port),
+            .address = .{ .ip = address },
         };
 
-        var conn = myzql.conn.Conn.init(allocator, &config) catch return error.ConnectionFailed;
+        var conn = myzql.conn.Conn.init(allocator, io, &config) catch return error.ConnectionFailed;
 
         // Ping to verify connection
-        conn.ping() catch return error.ConnectionFailed;
+        conn.ping(io) catch return error.ConnectionFailed;
 
         const ctx = try allocator.create(MysqlContext);
         ctx.* = MysqlContext{
             .allocator = allocator,
+            .io = io,
             .conn = conn,
             .username_z = username_z,
             .database_z = database_z,
@@ -73,7 +76,7 @@ pub const MysqlContext = struct {
     }
 
     pub fn deinit(self: *MysqlContext) void {
-        self.conn.deinit(self.allocator);
+        self.conn.deinit(self.allocator, self.io);
         self.allocator.free(self.username_z);
         self.allocator.free(self.database_z);
         self.allocator.destroy(self);
@@ -160,7 +163,7 @@ fn mysqlExec(ctx: *anyopaque, allocator: std.mem.Allocator, sql: []const u8, par
     _ = allocator;
     _ = params;
 
-    const result = mysql_ctx.conn.query(sql) catch return Error.ExecutionFailed;
+    const result = mysql_ctx.conn.query(mysql_ctx.io, sql) catch return Error.ExecutionFailed;
     switch (result) {
         .ok => |ok| {
             mysql_ctx.affected_rows = std.math.cast(usize, ok.affected_rows) orelse std.math.maxInt(usize);
@@ -176,7 +179,7 @@ fn mysqlQuery(ctx: *anyopaque, allocator: std.mem.Allocator, sql: []const u8, pa
     _ = params;
 
     // Use queryRows for SELECT statements that return result sets
-    const rows = mysql_ctx.conn.queryRows(allocator, sql) catch return Error.ExecutionFailed;
+    const rows = mysql_ctx.conn.queryRows(allocator, mysql_ctx.io, sql) catch return Error.ExecutionFailed;
 
     // Consume all rows to leave the connection in a clean state
     // Note: This is a temporary solution - proper result iteration should be implemented
@@ -185,7 +188,7 @@ fn mysqlQuery(ctx: *anyopaque, allocator: std.mem.Allocator, sql: []const u8, pa
         .err => return Error.ExecutionFailed,
         .rows => |rs| {
             var iter = rs.iter();
-            while (iter.next() catch return Error.ExecutionFailed) |_| {}
+            while (iter.next(mysql_ctx.io) catch return Error.ExecutionFailed) |_| {}
         },
     }
 
@@ -199,17 +202,17 @@ fn mysqlPrepare(_: *anyopaque, _: std.mem.Allocator, _: []const u8) Error!Statem
 
 fn mysqlBegin(ctx: *anyopaque) Error!void {
     const mysql_ctx: *MysqlContext = @ptrCast(@alignCast(ctx));
-    _ = mysql_ctx.conn.query("START TRANSACTION") catch return Error.TransactionError;
+    _ = mysql_ctx.conn.query(mysql_ctx.io, "START TRANSACTION") catch return Error.TransactionError;
 }
 
 fn mysqlCommit(ctx: *anyopaque) Error!void {
     const mysql_ctx: *MysqlContext = @ptrCast(@alignCast(ctx));
-    _ = mysql_ctx.conn.query("COMMIT") catch return Error.TransactionError;
+    _ = mysql_ctx.conn.query(mysql_ctx.io, "COMMIT") catch return Error.TransactionError;
 }
 
 fn mysqlRollback(ctx: *anyopaque) Error!void {
     const mysql_ctx: *MysqlContext = @ptrCast(@alignCast(ctx));
-    _ = mysql_ctx.conn.query("ROLLBACK") catch return Error.TransactionError;
+    _ = mysql_ctx.conn.query(mysql_ctx.io, "ROLLBACK") catch return Error.TransactionError;
 }
 
 fn mysqlClose(ctx: *anyopaque) void {
@@ -229,7 +232,7 @@ fn mysqlAffectedRows(ctx: *anyopaque) usize {
 
 fn mysqlPing(ctx: *anyopaque) Error!void {
     const mysql_ctx: *MysqlContext = @ptrCast(@alignCast(ctx));
-    mysql_ctx.conn.ping() catch return Error.NotConnected;
+    mysql_ctx.conn.ping(mysql_ctx.io) catch return Error.NotConnected;
 }
 
 fn mysqlLastError(ctx: *anyopaque) ?[]const u8 {
@@ -238,13 +241,14 @@ fn mysqlLastError(ctx: *anyopaque) ?[]const u8 {
 }
 
 /// Open a MySQL database connection
-pub fn open(allocator: std.mem.Allocator, uri: Uri) Error!Connection {
-    const ctx = MysqlContext.init(allocator, uri) catch return Error.ConnectionFailed;
+pub fn open(io: std.Io, allocator: std.mem.Allocator, uri: Uri) Error!Connection {
+    const ctx = MysqlContext.init(io, allocator, uri) catch return Error.ConnectionFailed;
 
     return Connection{
         .ctx = @ptrCast(ctx),
         .vtable = &mysqlConnectionVTable,
         .allocator = allocator,
+        .io = io,
         .uri = uri,
     };
 }

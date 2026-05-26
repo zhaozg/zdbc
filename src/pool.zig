@@ -112,7 +112,7 @@ pub const Pool = struct {
 
     /// Create a new connection and add it to the pool
     fn createConnection(self: *Pool) Error!void {
-        var conn = try zdbc.openWithUri(self.allocator, self.uri);
+        var conn = try zdbc.openWithUri(self.io, self.allocator, self.uri);
 
         // Call initialization callback if provided
         if (self.config.on_connection) |callback| {
@@ -170,7 +170,7 @@ pub const Pool = struct {
             pooled_conn.conn.ping() catch {
                 // Connection is invalid, try to reconnect
                 pooled_conn.conn.close();
-                pooled_conn.conn = zdbc.openWithUri(self.allocator, self.uri) catch {
+                pooled_conn.conn = zdbc.openWithUri(self.io, self.allocator, self.uri) catch {
                     // Failed to reconnect, mark as not in use and try again
                     pooled_conn.in_use = false;
                     return Error.ConnectionFailed;

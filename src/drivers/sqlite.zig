@@ -433,7 +433,7 @@ fn sqliteLastError(ctx: *anyopaque) ?[]const u8 {
 }
 
 /// Open a SQLite database connection
-pub fn open(allocator: std.mem.Allocator, uri: Uri) Error!Connection {
+pub fn open(io: std.Io, allocator: std.mem.Allocator, uri: Uri) Error!Connection {
     // Get the database path from URI
     const path = uri.database;
 
@@ -447,6 +447,7 @@ pub fn open(allocator: std.mem.Allocator, uri: Uri) Error!Connection {
         .ctx = @ptrCast(ctx),
         .vtable = &sqliteConnectionVTable,
         .allocator = allocator,
+        .io = io,
         .uri = uri,
     };
 }

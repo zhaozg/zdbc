@@ -240,7 +240,7 @@ zig build run-log
 
 ## Requirements
 
-- Zig 0.15.x or later
+- Zig 0.16.x or later
 - For SQLite: `libsqlite3-dev` (system library)
 - For PostgreSQL: Network access to PostgreSQL server
 - For MySQL: Network access to MySQL/MariaDB server

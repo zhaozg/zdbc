@@ -83,17 +83,17 @@ pub const Backend = enum {
 ///
 /// SQL injection prevention: Always use parameterized queries
 /// instead of string concatenation.
-pub fn open(allocator: std.mem.Allocator, uri_string: []const u8) Error!Connection {
+pub fn open(io: std.Io, allocator: std.mem.Allocator, uri_string: []const u8) Error!Connection {
     const uri = Uri.parse(uri_string) catch return Error.InvalidUri;
-    return openWithUri(allocator, uri);
+    return openWithUri(io, allocator, uri);
 }
 
 /// Create a new database connection from a parsed URI
-pub fn openWithUri(allocator: std.mem.Allocator, uri: Uri) Error!Connection {
+pub fn openWithUri(io: std.Io, allocator: std.mem.Allocator, uri: Uri) Error!Connection {
     return switch (uri.backend) {
-        .sqlite => drivers.sqlite.open(allocator, uri),
-        .postgresql => drivers.postgresql.open(allocator, uri),
-        .mysql => drivers.mysql.open(allocator, uri),
+        .sqlite => drivers.sqlite.open(io, allocator, uri),
+        .postgresql => drivers.postgresql.open(io, allocator, uri),
+        .mysql => drivers.mysql.open(io, allocator, uri),
         .mock => drivers.mock.open(allocator, uri),
     };
 }

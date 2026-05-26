@@ -25,11 +25,11 @@ pub const PgContext = struct {
     affected_rows: usize = 0,
     last_insert_id: i64 = 0,
 
-    pub fn init(allocator: std.mem.Allocator, uri: Uri) !*PgContext {
+    pub fn init(io: std.Io, allocator: std.mem.Allocator, uri: Uri) !*PgContext {
         const host = uri.host orelse "127.0.0.1";
         const port = uri.port orelse 5432;
 
-        var conn = pg.Conn.open(allocator, .{
+        var conn = pg.Conn.open(io, allocator, .{
             .host = host,
             .port = port,
         }) catch return error.ConnectionFailed;
@@ -122,9 +122,13 @@ fn pgResultGetValue(ctx: *anyopaque, index: usize) Error!Value {
     const result_ctx: *PgResultContext = @ptrCast(@alignCast(ctx));
     if (result_ctx.current_row) |row| {
         if (row.get(?[]const u8, index)) |text| {
-            return Value.initText(text);
+            if (text) |t| {
+                return Value.initText(t);
+            }
+            return Value.initNull();
+        } else |_| {
+            return Value.initNull();
         }
-        return Value.initNull();
     }
     return Error.NoMoreRows;
 }
@@ -230,13 +234,14 @@ fn pgLastError(ctx: *anyopaque) ?[]const u8 {
 }
 
 /// Open a PostgreSQL database connection
-pub fn open(allocator: std.mem.Allocator, uri: Uri) Error!Connection {
-    const ctx = PgContext.init(allocator, uri) catch return Error.ConnectionFailed;
+pub fn open(io: std.Io, allocator: std.mem.Allocator, uri: Uri) Error!Connection {
+    const ctx = PgContext.init(io, allocator, uri) catch return Error.ConnectionFailed;
 
     return Connection{
         .ctx = @ptrCast(ctx),
         .vtable = &pgConnectionVTable,
         .allocator = allocator,
+        .io = io,
         .uri = uri,
     };
 }

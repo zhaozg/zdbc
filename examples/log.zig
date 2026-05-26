@@ -106,6 +106,11 @@ const ArrayListU8 = if (builtin.zig_version.minor >= 15)
 else
     std.ArrayList(u8);
 
+fn milliTimestamp(io: std.Io) i64 {
+    const ts = std.Io.Timestamp.now(io, .awake);
+    return @as(i64, @intCast(@divTrunc(ts.nanoseconds, 1000000)));
+}
+
 fn arrayListInit(allocator: std.mem.Allocator, capacity: usize) !ArrayListU8 {
     if (builtin.zig_version.minor >= 15) {
         // Zig 0.15: unmanaged ArrayList
@@ -208,10 +213,10 @@ fn initDatabase(conn: *zdbc.Connection, config: Config) !void {
 }
 
 /// Create indexes on the log table after bulk insert
-fn createIndexes(conn: *zdbc.Connection) !void {
+fn createIndexes(io: std.Io, conn: *zdbc.Connection) !void {
     std.debug.print("\nCreating indexes...\n", .{});
 
-    const start = std.time.milliTimestamp();
+    const start = milliTimestamp(io);
 
     // Index on 'who' for filtering by user
     _ = try conn.exec("CREATE INDEX IF NOT EXISTS idx_logs_who ON logs(who)", &.{});
@@ -225,7 +230,7 @@ fn createIndexes(conn: *zdbc.Connection) !void {
     // Composite index on timestamp for time-based queries
     _ = try conn.exec("CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp)", &.{});
 
-    const elapsed = std.time.milliTimestamp() - start;
+    const elapsed = milliTimestamp(io) - start;
     std.debug.print("Indexes created in {} ms\n", .{elapsed});
 }
 
@@ -236,7 +241,7 @@ fn generateLogEntry(allocator: std.mem.Allocator, index: usize) !LogEntry {
     const users = [_][]const u8{ "user001", "user002", "user003", "admin", "system", "service" };
     const targets = [_][]const u8{ "database", "file", "api", "service", "cache", "queue" };
 
-    const timestamp = std.time.milliTimestamp();
+    const timestamp = @as(i64, @intCast(std.time.ns_per_s));
     const who = users[index % users.len];
     const operation = operations[index % operations.len];
     const target = targets[index % targets.len];
@@ -385,7 +390,7 @@ const ComparisonMode = enum {
 };
 
 /// Run performance comparison
-fn runComparison(allocator: std.mem.Allocator, config: Config) !void {
+fn runComparison(io: std.Io, allocator: std.mem.Allocator, config: Config) !void {
     const modes = [_]struct {
         mode: ComparisonMode,
         name: []const u8,
@@ -403,8 +408,8 @@ fn runComparison(allocator: std.mem.Allocator, config: Config) !void {
         std.debug.print("  Records: {} | Batch size: {}\n", .{ config.total_records, config.batch_size });
 
         // Create database URI
-        var path_buffer: [std.fs.max_path_bytes]u8 = undefined;
-        const cwd = try std.fs.cwd().realpath(".", &path_buffer);
+        const cwd = try std.process.currentPathAlloc(io, allocator);
+        defer allocator.free(cwd);
         const db_name = try std.fmt.allocPrint(allocator, "comparison_{s}.db", .{@tagName(test_mode.mode)});
         defer allocator.free(db_name);
         const full_path = try std.fs.path.join(allocator, &[_][]const u8{ cwd, db_name });
@@ -414,13 +419,13 @@ fn runComparison(allocator: std.mem.Allocator, config: Config) !void {
         defer allocator.free(uri);
 
         // Open connection
-        var conn = try zdbc.open(allocator, uri);
+        var conn = try zdbc.open(io, allocator, uri);
         defer conn.close();
 
         // Initialize database
         try initDatabase(&conn, config);
 
-        const start_time = std.time.milliTimestamp();
+        const start_time = milliTimestamp(io);
         var total_inserted: usize = 0;
         const total_batches = (config.total_records + config.batch_size - 1) / config.batch_size;
 
@@ -440,7 +445,7 @@ fn runComparison(allocator: std.mem.Allocator, config: Config) !void {
             total_inserted += current_batch_size;
         }
 
-        const elapsed = std.time.milliTimestamp() - start_time;
+        const elapsed = milliTimestamp(io) - start_time;
         const rate = if (elapsed > 0)
             @as(f64, @floatFromInt(total_inserted)) / (@as(f64, @floatFromInt(elapsed)) / 1000.0)
         else
@@ -453,7 +458,7 @@ fn runComparison(allocator: std.mem.Allocator, config: Config) !void {
 }
 
 /// Main benchmark function
-fn runBenchmark(allocator: std.mem.Allocator, config: Config) !void {
+fn runBenchmark(io: std.Io, allocator: std.mem.Allocator, config: Config) !void {
     std.debug.print("=== High-Performance Log System Benchmark ===\n\n", .{});
     std.debug.print("Configuration:\n", .{});
     std.debug.print("  Total records: {}\n", .{config.total_records});
@@ -463,8 +468,8 @@ fn runBenchmark(allocator: std.mem.Allocator, config: Config) !void {
 
     // Create database URI
     // Use the absolute path to current directory
-    var path_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const cwd = try std.fs.cwd().realpath(".", &path_buffer);
+    const cwd = try std.process.currentPathAlloc(io, allocator);
+    defer allocator.free(cwd);
     const full_path = try std.fs.path.join(allocator, &[_][]const u8{ cwd, config.db_path });
     defer allocator.free(full_path);
 
@@ -472,7 +477,7 @@ fn runBenchmark(allocator: std.mem.Allocator, config: Config) !void {
     defer allocator.free(uri);
 
     // Open connection
-    var conn = try zdbc.open(allocator, uri);
+    var conn = try zdbc.open(io, allocator, uri);
     defer conn.close();
 
     // Initialize database
@@ -480,7 +485,7 @@ fn runBenchmark(allocator: std.mem.Allocator, config: Config) !void {
 
     // Start benchmark
     std.debug.print("Starting bulk insert...\n", .{});
-    const start_time = std.time.milliTimestamp();
+    const start_time = milliTimestamp(io);
 
     var total_inserted: usize = 0;
     const total_batches = (config.total_records + config.batch_size - 1) / config.batch_size;
@@ -496,7 +501,7 @@ fn runBenchmark(allocator: std.mem.Allocator, config: Config) !void {
 
         // Print progress every 100 batches
         if ((batch_idx + 1) % 100 == 0 or batch_idx == total_batches - 1) {
-            const elapsed = std.time.milliTimestamp() - start_time;
+            const elapsed = milliTimestamp(io) - start_time;
             const rate = if (elapsed > 0)
                 @as(f64, @floatFromInt(total_inserted)) / (@as(f64, @floatFromInt(elapsed)) / 1000.0)
             else
@@ -506,7 +511,7 @@ fn runBenchmark(allocator: std.mem.Allocator, config: Config) !void {
         }
     }
 
-    const insert_time = std.time.milliTimestamp() - start_time;
+    const insert_time = milliTimestamp(io) - start_time;
 
     std.debug.print("\nBulk insert completed!\n", .{});
     std.debug.print("  Total time: {} ms ({d:.2} seconds)\n", .{ insert_time, @as(f64, @floatFromInt(insert_time)) / 1000.0 });
@@ -514,7 +519,7 @@ fn runBenchmark(allocator: std.mem.Allocator, config: Config) !void {
     std.debug.print("  Average rate: {d:.0} records/sec\n", .{@as(f64, @floatFromInt(total_inserted)) / (@as(f64, @floatFromInt(insert_time)) / 1000.0)});
 
     // Create indexes
-    try createIndexes(&conn);
+    try createIndexes(io, &conn);
 
     // Verify record count
     std.debug.print("\nVerifying data...\n", .{});
@@ -530,7 +535,7 @@ fn runBenchmark(allocator: std.mem.Allocator, config: Config) !void {
     // Sample query performance
     std.debug.print("\nTesting query performance...\n", .{});
 
-    const query_start = std.time.milliTimestamp();
+    const query_start = milliTimestamp(io);
     var query_result = try conn.query("SELECT * FROM logs WHERE operation = 'LOGIN' LIMIT 10", &.{});
     defer query_result.deinit();
 
@@ -538,32 +543,30 @@ fn runBenchmark(allocator: std.mem.Allocator, config: Config) !void {
     while (try query_result.next()) |_| {
         sample_count += 1;
     }
-    const query_time = std.time.milliTimestamp() - query_start;
+    const query_time = milliTimestamp(io) - query_start;
 
     std.debug.print("  Sample query (LOGIN operations): {} records in {} ms\n", .{ sample_count, query_time });
 
     // Final database size
-    const file = std.fs.cwd().openFile(config.db_path, .{}) catch |err| {
+    const file = std.Io.Dir.openFileAbsolute(io, config.db_path, .{}) catch |err| {
         std.debug.print("  Warning: Could not get file size: {}\n", .{err});
         return;
     };
-    defer file.close();
+    defer file.close(io);
 
-    const stat = try file.stat();
+    const stat = try file.stat(io);
     const size_mb = @as(f64, @floatFromInt(stat.size)) / (1024.0 * 1024.0);
     std.debug.print("  Database size: {d:.2} MB\n", .{size_mb});
 
     std.debug.print("\n=== Benchmark Complete ===\n", .{});
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
 
     // Check for comparison mode flag
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try std.process.Args.toSlice(init.minimal.args, allocator);
+    defer allocator.free(args);
 
     const run_comparison = args.len > 1 and std.mem.eql(u8, args[1], "--compare");
 
@@ -575,7 +578,7 @@ pub fn main() !void {
             .db_path = "comparison.db",
             .fast_mode = true,
         };
-        try runComparison(allocator, config);
+        try runComparison(init.io, allocator, config);
     } else {
         // Run standard benchmark
         const config = Config{
@@ -584,6 +587,6 @@ pub fn main() !void {
             .db_path = "log_example.db",
             .fast_mode = true,
         };
-        try runBenchmark(allocator, config);
+        try runBenchmark(init.io, allocator, config);
     }
 }

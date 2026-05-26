@@ -61,6 +61,9 @@ pub const Connection = struct {
     /// Allocator used for this connection
     allocator: std.mem.Allocator,
 
+    /// I/O interface
+    io: std.Io,
+
     /// The URI used to create this connection
     uri: Uri,
 

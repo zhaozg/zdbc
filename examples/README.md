@@ -52,7 +52,7 @@ Edit the `Config` struct in `log.zig` to adjust:
 - `fast_mode`: Enable/disable performance optimizations
 
 **Compatibility:**
-- Supports Zig 0.14.x and 0.15.x
+- Supports 0.16.x
 - Uses compatibility layer for ArrayList API differences
 
 ## Running Examples
@@ -74,5 +74,5 @@ zig build run-log
 
 ## Requirements
 
-- Zig 0.14.x or 0.15.x
+- Zig 0.16.x
 - SQLite3 library (for log example)
